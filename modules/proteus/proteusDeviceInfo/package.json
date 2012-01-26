@@ -1,0 +1,6 @@
+{
+   "name": "proteusDeviceInfo",
+   "version": "0.0.1",
+   "description": "Package to get Device Information",
+   "main": "./lib/proteusDeviceInfo.js"
+}

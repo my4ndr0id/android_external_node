@@ -1,4 +1,5 @@
 // Copyright Joyent, Inc. and other Node contributors.
+// Copyright (c) 2011, 2012 Code Aurora Forum. All rights reserved.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
 // copy of this software and associated documentation files (the
@@ -64,6 +65,8 @@
 # define inet_ntop ares_inet_ntop
 #endif
 
+#include <stdlib.h>
+
 namespace node {
 
 using namespace v8;
@@ -87,6 +90,17 @@ class Channel : public ObjectWrap {
 
   static void SockStateCb(void *data, ares_socket_t sock, int read, int write);
   static void QueryCb(void *arg, int status, int timeouts, unsigned char* abuf, int alen);
+
+  // proteus: release channel
+  Channel() : channel(0) {
+  }
+
+  ~Channel() {
+    if (channel) {
+      free(channel);
+    }
+  }
+
 };
 
 

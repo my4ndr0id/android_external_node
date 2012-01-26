@@ -199,14 +199,17 @@ Buffer::Buffer(Handle<Object> wrapper, size_t length) : ObjectWrap() {
 
 
 Buffer::~Buffer() {
-  // FIXME (proteus): This crashes since we are not in the right context
-  // Replace(NULL, 0, NULL, NULL);
+  Replace(NULL, 0, NULL, NULL);
 }
 
 
 void Buffer::Replace(char *data, size_t length,
                      free_callback callback, void *hint) {
   HandleScope scope;
+
+  // proteus: we may not be in a context, explicitly set it to the
+  // handle's context
+  Context::Scope cscope(handle_->CreationContext());
 
   if (callback_) {
     callback_(data_, callback_hint_);
@@ -471,7 +474,15 @@ Handle<Value> Buffer::Utf8Write(const Arguments &args) {
 
   size_t offset = args[1]->Uint32Value();
 
-  if (s->Length() > 0 && offset >= buffer->length_) {
+  int length = s->Length();
+
+  if (length == 0) {
+    constructor_template->GetFunction()->Set(chars_written_sym,
+                                             Integer::New(0));
+    return scope.Close(Integer::New(0));
+  }
+
+  if (length > 0 && offset >= buffer->length_) {
     return ThrowException(Exception::TypeError(String::New(
             "Offset is out of bounds")));
   }
@@ -492,7 +503,13 @@ Handle<Value> Buffer::Utf8Write(const Arguments &args) {
   constructor_template->GetFunction()->Set(chars_written_sym,
                                            Integer::New(char_written));
 
-  if (written > 0 && p[written-1] == '\0') written--;
+  if (written > 0 && p[written-1] == '\0' && char_written == length) {
+    uint16_t last_char;
+    s->Write(&last_char, length - 1, 1, String::NO_HINTS);
+    if (last_char != 0 || written > s->Utf8Length()) {
+      written--;
+    }
+  }
 
   return scope.Close(Integer::New(written));
 }
@@ -566,6 +583,10 @@ Handle<Value> Buffer::AsciiWrite(const Arguments &args) {
                               0,
                               max_length,
                               String::HINT_MANY_WRITES_EXPECTED);
+
+  constructor_template->GetFunction()->Set(chars_written_sym,
+                                           Integer::New(written));
+
   return scope.Close(Integer::New(written));
 }
 
@@ -653,6 +674,9 @@ Handle<Value> Buffer::Base64Write(const Arguments &args) {
     *dst++ = ((c & 0x03) << 6) | (d & 0x3F);
   }
 
+  constructor_template->GetFunction()->Set(chars_written_sym,
+                                           Integer::New(s.length()));
+
   return scope.Close(Integer::New(dst - start));
 }
 
@@ -678,9 +702,16 @@ Handle<Value> Buffer::BinaryWrite(const Arguments &args) {
 
   char *p = (char*)buffer->data_ + offset;
 
-  size_t towrite = MIN((unsigned long) s->Length(), buffer->length_ - offset);
+  size_t max_length = args[2]->IsUndefined() ? buffer->length_ - offset
+                                             : args[2]->Uint32Value();
+  // proteus: Fix g++ warning
+  max_length = MIN((size_t)s->Length(), MIN(buffer->length_ - offset, max_length));
 
-  int written = Node::DecodeWrite(p, towrite, s, BINARY);
+  int written = Node::DecodeWrite(p, max_length, s, BINARY);
+
+  constructor_template->GetFunction()->Set(chars_written_sym,
+                                           Integer::New(written));
+
   return scope.Close(Integer::New(written));
 }
 
@@ -740,13 +771,13 @@ bool Buffer::HasInstance(v8::Handle<v8::Value> val) {
 void Buffer::Initialize(Handle<Object> target) {
   HandleScope scope;
 
-  length_symbol = Persistent<String>::New(String::NewSymbol("length"));
-  chars_written_sym = Persistent<String>::New(String::NewSymbol("_charsWritten"));
-
-  // proteus: for multiple contexts, we need to ensure constructor template is created
-  // only one since this function gets called once for each context
-  // Node each context gets a separate function from the same template
   if (constructor_template.IsEmpty()){
+    length_symbol = Persistent<String>::New(String::NewSymbol("length"));
+    chars_written_sym = Persistent<String>::New(String::NewSymbol("_charsWritten"));
+
+    // proteus: for multiple contexts, we need to ensure constructor template is created
+    // only one since this function gets called once for each context
+    // Node each context gets a separate function from the same template
     Local<FunctionTemplate> t = FunctionTemplate::New(Buffer::New);
     constructor_template = Persistent<FunctionTemplate>::New(t);
   }

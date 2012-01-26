@@ -51,7 +51,9 @@ void IOWatcher::Initialize(Handle<Object> target) {
 
   target->Set(String::NewSymbol("IOWatcher"), constructor_template->GetFunction());
 
-  callback_symbol = NODE_PSYMBOL("callback");
+  if (callback_symbol.IsEmpty()) {
+    callback_symbol = NODE_PSYMBOL("callback");
+  }
 }
 
 

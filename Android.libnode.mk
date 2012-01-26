@@ -25,11 +25,18 @@ LOCAL_JS_FILES := $(LOCAL_PATH)/src/node.js $(LOCAL_PATH)/lib/*.js
 LOCAL_JS_FILES += \
         $(LOCAL_PATH)/modules/proteus/proteusModLoader/lib/*.js \
         $(LOCAL_PATH)/modules/proteus/proteusPackageExtractor/lib/*.js \
-        $(LOCAL_PATH)/modules/proteus/proteusUnzip/lib/*.js
+        $(LOCAL_PATH)/modules/proteus/proteusDeviceInfo/lib/*.js \
+        $(LOCAL_PATH)/modules/proteus/proteusUnzip/lib/*.js \
+        $(LOCAL_PATH)/modules/proteus/proteusConfig/lib/*.js
+
+# Secure proxy
+LOCAL_JS_FILES += \
+        $(LOCAL_PATH)/modules/proteus/proteusSecureProxy/lib/secureproxy.js
+
 
 # Add sqlite js as builtin
 LOCAL_JS_FILES += \
-        external/node-sqlite-sync/sqlite.js
+        external/node/modules/sqlite-sync/sqlite.js
 
 GEN_NODE := $(intermediates)/node_natives.h
 $(GEN_NODE): SCRIPT := $(intermediates)/js2c.py
@@ -58,7 +65,6 @@ LOCAL_SRC_FILES := \
   src/node_stdio.cc \
   src/node_string.cc \
   src/node_timer.cc \
-  src/node_permission.cc \
   src/timer_wrap.cc \
   src/tcp_wrap.cc \
   src/node_cares.cc \
@@ -123,7 +129,7 @@ endif
 # sqlite sync module
 # https://github.com/grumdrig/node-sqlite.git
 LOCAL_SRC_FILES += \
-  ../../external/node-sqlite-sync/sqlite3_bindings.cc
+  ../modules/sqlite-sync/sqlite3_bindings.cc
 
 LOCAL_C_INCLUDES += \
   external/sqlite/dist
@@ -141,5 +147,12 @@ LOCAL_C_INCLUDES += \
 LOCAL_STATIC_LIBRARIES += \
   libzipfile \
   libunz
+
+# add deviceInfo
+LOCAL_SRC_FILES += \
+  modules/proteus/proteusDeviceInfo/src/node_deviceinfo.cc
+
+LOCAL_STATIC_LIBRARIES += \
+  libcutils \
 
 include $(BUILD_SHARED_LIBRARY)

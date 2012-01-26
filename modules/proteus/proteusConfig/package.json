@@ -1,0 +1,6 @@
+{
+   "name": "proteusConfig",
+   "version": "0.0.1",
+   "description": "Configuration module for proteus",
+   "main": "./lib/proteusConfig.js"
+}

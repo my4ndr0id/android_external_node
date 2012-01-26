@@ -8,7 +8,7 @@ import re
 import time
 
 if len(sys.argv) < 3:
-  print ('usage: $> ' + sys.argv[0] + ' target <Path> <match (optional)>');
+  print ('usage: $> ' + sys.argv[0] + ' target <Path> <match (optional)> <count>');
   print ('eg.    $> ' + sys.argv[0] + ' browser test/simple http');
   sys.exit();
 
@@ -16,7 +16,12 @@ if len(sys.argv) >= 3:
   Path = sys.argv[2];
 
 if len(sys.argv) >= 4:
-  match = sys.argv[3];
+  TestsPerInvocation = int(sys.argv[3])
+else:
+  TestsPerInvocation = 1
+
+if len(sys.argv) >= 5:
+  match = sys.argv[4];
 else:
   match = r'(\w*)'
 
@@ -26,11 +31,6 @@ if target != 'shell' and target != 'desktop' and target != 'browser':
    sys.exit()
 
 StartTime = time.time()
-
-if target == 'browser':
-   TestsPerInvocation = 1
-else:
-   TestsPerInvocation = 1
 
 # check for skip file
 skipfile = Path + '/skip.browser'
@@ -59,17 +59,17 @@ for Test in Listing:
    if not Test in SkipList and re.search(match, Test) and re.match(r'.*\.js$', Test):
        TestsToRun.append(Test);
 
-# print testtorun
+TestToRunPaths = []
+for Test in TestsToRun:
+    TestToRunPaths.append(Path + '/' + Test);
+print TestToRunPaths
+
 print "TESTRUN: Total tests: " + str(len(Listing))
-print "TESTRUN: Tests to run multiple : " + str(len(TestsToRun))
-print "TESTRUN: Tests to run single: " + str(len(SingleList))
+print "TESTRUN: Tests to run: " + str(len(TestsToRun) + len(SingleList))
 print "TESTRUN: Tests skipped: " + str(len(SkipList))
 print "TESTRUN: Tests to run per invocation: " + str(TestsPerInvocation)
 
 toolsdir = os.path.dirname(sys.argv[0])
-TestString = ''
-Count = 0
-TotalCount = 0
 
 def runTest(TestString):
   if target == 'desktop':
@@ -87,27 +87,29 @@ def runTest(TestString):
     if retcode < 0:
       print "Test ** CRASHED **: " + TestString
   elif target == 'browser':
-    print "TESTSTR (browser): ./node " + TestString
+    print "TESTSTR (browser): node_browser.sh " + TestString
     sys.stdout.flush()
     subprocess.Popen(['sh', toolsdir + '/' + 'node_browser.sh', TestString]).wait()
 
+TotalCount = 0
+Count = 0
+TestString = ""
 for Test in TestsToRun:
   TotalCount = TotalCount + 1
   TestPath = Path + '/' + Test;
-  if re.search('http', Test) or Test in SingleList:
+  #if re.search('http', Test) or Test in SingleList:
+  if Test in SingleList:
     runTest(TestPath);
   else:
+    Count = Count + 1
+    TestString += TestPath + " "
     if Count == TestsPerInvocation or TotalCount == len(TestsToRun):
       runTest(TestString)
       TestString = '';
       Count = 0;
       sys.stdout.flush()
-    else:
-      TestString += TestPath + " "
-      Count = Count + 1
 
 print "TESTRUN: Total tests: " + str(len(Listing))
-print "TESTRUN: Tests to run multiple : " + str(len(TestsToRun))
-print "TESTRUN: Tests skipped: " + str(len(SkipList))
+print "TESTRUN: Tests to run: " + str(len(TestsToRun) + len(SingleList))
 print "TESTRUN: Tests run per invocation: " + str(TestsPerInvocation)
 print "TESTRUN: Time to run tests: " + str( int(time.time() - StartTime)) + "s"

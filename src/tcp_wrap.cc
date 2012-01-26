@@ -207,7 +207,7 @@ class TCPWrap {
       uv_close((uv_handle_t*) handle, OnClose);
       return;
     }
-   
+
     // proteus: test-tcp-wrap-listen.js
     Context::Scope context(wrap->object_->CreationContext());
     NODE_ASSERT(Context::InContext());
@@ -272,7 +272,7 @@ class TCPWrap {
     assert(&wrap->handle_ == (uv_tcp_t*)handle);
 
     char* slab = NULL;
-   
+
     // proteus: test-tcp-wrap-listen.js
     Context::Scope context(wrap->object_->CreationContext());
     NODE_ASSERT(Context::InContext());
@@ -319,7 +319,7 @@ class TCPWrap {
     // uv_close() on the handle. Since we've destroyed object_ at the same
     // time as calling uv_close() we can test for this here.
     assert(wrap->object_.IsEmpty() == false);
-   
+
     // proteus: test-tcp-wrap-listen.js
     Context::Scope context(wrap->object_->CreationContext());
     NODE_ASSERT(Context::InContext());
@@ -381,7 +381,7 @@ class TCPWrap {
 
     // The request object should still be there.
     assert(req_wrap->object_.IsEmpty() == false);
-   
+
     // proteus: test-tcp-wrap-listen.js
     Context::Scope context(req_wrap->object_->CreationContext());
     NODE_ASSERT(Context::InContext());

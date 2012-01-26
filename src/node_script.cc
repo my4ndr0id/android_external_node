@@ -167,19 +167,22 @@ void WrappedScript::Initialize(Handle<Object> target) {
                             "runInNewContext",
                             WrappedScript::RunInNewContext);
 
-  NODE_SET_METHOD(constructor_template,
+  // proteus: setting methods on constructor template will leak
+  // if the template is a persistent handle, set methods on the
+  // function object which will be tied to lifecycle of target object
+  NODE_SET_METHOD(constructor_template->GetFunction(),
                   "createContext",
                   WrappedScript::CreateContext);
 
-  NODE_SET_METHOD(constructor_template,
+  NODE_SET_METHOD(constructor_template->GetFunction(),
                   "runInContext",
                   WrappedScript::CompileRunInContext);
 
-  NODE_SET_METHOD(constructor_template,
+  NODE_SET_METHOD(constructor_template->GetFunction(),
                   "runInThisContext",
                   WrappedScript::CompileRunInThisContext);
 
-  NODE_SET_METHOD(constructor_template,
+  NODE_SET_METHOD(constructor_template->GetFunction(),
                   "runInNewContext",
                   WrappedScript::CompileRunInNewContext);
 

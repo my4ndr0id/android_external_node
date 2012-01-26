@@ -41,15 +41,11 @@ namespace node {
 typedef enum {
   NODE_EVENT_UNKNOWN,
 
-  // To be called from LIBEV thread
-  NODE_EVENT_LIBEV_INVOKE_PENDING,
-  NODE_EVENT_LIBEV_DONE,
-
   // To be called from main thread
   NODE_EVENT_FP_REGISTER_PRIVILEGED_FEATURES,
   NODE_EVENT_FP_REQUEST_PERMISSION
 } NodeEventType;
-   
+
 // Feature permission events
 typedef struct {
   std::vector<std::string>* features;
@@ -90,29 +86,6 @@ typedef struct {
   union {
   } u;
 } WebKitEvent;
-
-///////////////////////////////// Internal events //////////////////////////
-typedef enum {
-  INTERNAL_EVENT_UNKNOWN,
-
-  /* INTERNAL_EVENT_RELEASE
-   * when the node instance is being destroyed, the module needs
-   * to do the cleanup like stopping all watchers, destroying all native objects
-   * it created and detaching them from the JS objects and releasing any references.
-   * The JS objects get collected on the next GC
-   */
-  INTERNAL_EVENT_RELEASE
-} InternalEventType;
-
-typedef struct {
-  InternalEventType type;
-} InternalEvent;
-
-//////////////////////////////////Event Types /////////////////////////////
-typedef enum {
-  EVENT_TYPE_WEBKIT,
-  EVENT_TYPE_INTERNAL
-} EventType;
 
 /////////////////////////////////////Module ids///////////////////////
 typedef enum {

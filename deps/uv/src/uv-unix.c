@@ -1108,7 +1108,8 @@ void uv_req_init(uv_req_t* req, uv_handle_t* handle, void* cb) {
 }
 
 
-static void uv__prepare(EV_P_ ev_prepare* w, int revents) {
+//proteus: remove static to make symbol visible for debugging
+void uv__prepare(EV_P_ ev_prepare* w, int revents) {
   uv_prepare_t* prepare = w->data;
 
   if (prepare->prepare_cb) {
@@ -1158,7 +1159,7 @@ int uv_prepare_stop(uv_prepare_t* prepare) {
 
 
 
-static void uv__check(EV_P_ ev_check* w, int revents) {
+void uv__check(EV_P_ ev_check* w, int revents) {
   uv_check_t* check = w->data;
 
   if (check->check_cb) {
@@ -1208,7 +1209,7 @@ int uv_check_stop(uv_check_t* check) {
 }
 
 
-static void uv__idle(EV_P_ ev_idle* w, int revents) {
+void uv__idle(EV_P_ ev_idle* w, int revents) {
   uv_idle_t* idle = (uv_idle_t*)(w->data);
 
   if (idle->idle_cb) {
@@ -1278,7 +1279,7 @@ int uv_is_active(uv_handle_t* handle) {
 }
 
 
-static void uv__async(EV_P_ ev_async* w, int revents) {
+void uv__async(EV_P_ ev_async* w, int revents) {
   uv_async_t* async = w->data;
 
   if (async->async_cb) {
@@ -1310,7 +1311,7 @@ int uv_async_send(uv_async_t* async) {
 }
 
 
-static void uv__timer_cb(EV_P_ ev_timer* w, int revents) {
+void uv__timer_cb(EV_P_ ev_timer* w, int revents) {
   uv_timer_t* timer = w->data;
 
   if (!ev_is_active(w)) {

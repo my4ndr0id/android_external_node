@@ -1761,12 +1761,14 @@ void InitNet(Handle<Object> target) {
   NODE_SET_METHOD(target, "isIP", IsIP);
   NODE_SET_METHOD(target, "errnoException", CreateErrnoException);
 
-  errno_symbol          = NODE_PSYMBOL("errno");
-  syscall_symbol        = NODE_PSYMBOL("syscall");
-  fd_symbol             = NODE_PSYMBOL("fd");
-  size_symbol           = NODE_PSYMBOL("size");
-  address_symbol        = NODE_PSYMBOL("address");
-  port_symbol           = NODE_PSYMBOL("port");
+  if (errno_symbol.IsEmpty()) {
+    errno_symbol          = NODE_PSYMBOL("errno");
+    syscall_symbol        = NODE_PSYMBOL("syscall");
+    fd_symbol             = NODE_PSYMBOL("fd");
+    size_symbol           = NODE_PSYMBOL("size");
+    address_symbol        = NODE_PSYMBOL("address");
+    port_symbol           = NODE_PSYMBOL("port");
+  }
 }
 
 }  // namespace node

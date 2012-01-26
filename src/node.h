@@ -23,11 +23,39 @@
 #ifndef NODE_H_
 #define NODE_H_
 
-#include <pthread.h>
 #include <uv.h>
+
+/* C api exposed from Node, essentially for libev C code */
+#ifdef __cplusplus
+extern "C" {
+#endif
+  int gettid();
+  void on_ev_start(ev_watcher *w);
+  void on_ev_stop(ev_watcher *w);
+  void lock();
+  void unlock();
+  void wakeup();
+  int is_main_thread();
+
+#define LOCK \
+  lock();
+
+#define UNLOCK \
+  unlock();
+
+#define UNLOCK_N_WAKEUP \
+  wakeup();           \
+  unlock();
+
+#ifdef __cplusplus
+};
+#endif
+
+#ifdef __cplusplus
+
+#include <pthread.h>
 #include <eio.h>
 #include <v8.h>
-
 #include <vector>
 #include <node_object_wrap.h>
 #include <nodelog.h>
@@ -35,36 +63,56 @@
 
 namespace node {
 
-class NodeObjectClient;
-class NodeObject : public ObjectWrap {
+class NodeView;
+class Node;
+class NodeSource : public ObjectWrap {
   public:
-    NodeObject() : m_client(0) {}
-    virtual ~NodeObject(){}
+    NodeSource() : m_view(0) {}
+    virtual ~NodeSource(){}
 
-    virtual void SetClient(NodeObjectClient *client) = 0;
-    virtual void SetSurfaceTexture(void* texture) = 0;
-    virtual void OnAttach() = 0;
-    virtual void OnDetach() = 0;
-    virtual void Release()  = 0;
-    virtual NodeObjectClient *Client() { return m_client; }
-    virtual bool IsCamera() { return false; }
+    virtual void SetView(NodeView *view) = 0;
+    virtual void SetPreviewTexture(void* texture) = 0;
+    virtual void Attach(NodeView*, void*) = 0;
+    virtual void Detach(NodeView*) = 0;
+
+    virtual NodeView *View() { return m_view; }
 
   protected:
-    NodeObjectClient *m_client;
+    NodeView *m_view;
 };
 
-class NodeObjectClient {
+class Lock {
   public:
-    NodeObjectClient() : m_source(0) {}
-    virtual ~NodeObjectClient(){}
-    virtual void SetSource(NodeObject *source) = 0;
+    Lock(Node* n, v8::Persistent<v8::Function> func)
+    {
+      lockFunction = func;
+      s_node = n;
+    }
+    static void LockWeakCallback(v8::Persistent<v8::Value> value,void* data){
+      NODE_LOGV("%s, LockWeakCallback for dispose : %s", __FUNCTION__, (char*) data);
+      value.Dispose();
+    }
+    ~Lock(){
+      NODE_LOGV("%s, set LockWeakCallback for lock : %p", __FUNCTION__, this);
+      lockFunction.MakeWeak((void*)"lock",LockWeakCallback);
+    }
+
+    v8::Persistent<v8::Function> lockFunction;
+    Node* s_node;
+};
+
+class NodeView {
+  public:
+    NodeView() : m_source(0) {}
+    virtual ~NodeView(){}
+    virtual void SetSource(NodeSource *source) = 0;
     virtual void UpdatePreviewFrame(const char* buf, int bufsize,
         int width, int height, int orientation) = 0;
-    virtual NodeObject* Source() { return m_source; }
+    virtual NodeSource* Source() { return m_source; }
     virtual bool IsCamera() { return false; }
 
   protected:
-    NodeObject *m_source;
+    NodeSource *m_source;
 };
 
 /**
@@ -74,15 +122,7 @@ class NodeObjectClient {
 class NodeModule {
   public:
     virtual ~NodeModule() {}
-    virtual void HandleWebKitEvent(WebKitEvent*) = 0;
-    virtual void HandleInternalEvent(InternalEvent*) = 0;
     virtual ModuleId Module() = 0;
-};
-
-/* C api exposed from Node */
-extern "C" {
-  int gettid();
-  int DebugLevel();
 };
 
 /*
@@ -95,17 +135,22 @@ class NodeClient {
     virtual void OnDelete() = 0;
     virtual void OnTestDone() = 0;
     virtual std::string url() = 0;
+    virtual NodeView* Unwrap(v8::Handle<v8::Object> object) = 0;
+    virtual v8::Handle<v8::Value> CreatePreviewNode(NodeSource *) = 0;
+    virtual v8::Handle<v8::Value> CreateArrayBuffer(void *buf, int size) = 0;
+    virtual std::string GetEnvironmentProperty(const char *prop, bool ) = 0;
 };
 
 class StopWatch {
   public:
+    StopWatch() : m_started(false) {}
     void start();
-
-    // stops and returns the time diff from start in ms
-    int stop();
+    int time();
+    bool started() { return m_started; }
 
   private:
     static double currentTime();
+    bool m_started;
     double m_startTime;
 };
 
@@ -140,7 +185,7 @@ class Node {
      * @param isBrowser specifies if client is a browser or a shell
      * @param moduleRootPath Root directory specified by client for installing downloaded modules
      */
-    static void Initialize(bool isBrowser, std::string moduleRootPath);
+    static void Initialize(void (*clientcb)(), bool isBrowser, std::string moduleRootPath);
 
     /**
      * Node client
@@ -151,21 +196,20 @@ class Node {
     /**
      * Invoked by the client on the main thread to process pending libev events
      * (internally calls ev_invoke_pending)
-     * @return return true if we are done processing (including any exceptions thrown),
-     * false if we are not done yet
      */
-    static bool InvokePending();
+    static void InvokePending();
 
     /**
-     * Used by client to send events to specific node instance
+     * Called by the browser when the current page goes out of focus, either
+     * user has switched to a new tab or browser has gone to background
      */
-    void HandleWebKitEvent(WebKitEvent *event);
+    void Pause();
 
     /**
-     * Used by webkit to send event to node (not to a specific instance)
-     * used for broadcast events
+     * Called by the browser when the page associated with this node comes in focus, either
+     * user has switched to this tab or browser has come to foreground with this tab in focus
      */
-    static void HandleGenericWebKitEvent(WebKitEvent *event);
+    void Resume();
 
     /**
      * Get handle to loadModule function in the current node context
@@ -183,14 +227,6 @@ class Node {
      */
     v8::Handle<v8::Value> LoadModule(const v8::Arguments& args);
     v8::Handle<v8::Value> LoadModuleSync(const v8::Arguments& args);
-
-    /**
-     * Register module interface with the current node instance
-     * This allows the node instance to let modules know when events occur
-     * e.g. pause/resume, release (when node is being destroyed usually since the page is navigated out)
-     * @param module object that implements the module interface
-     */
-    void RegisterNodeModule(NodeModule* module);
 
     /**
      * This can be used to emit custom events from native code,
@@ -233,18 +269,16 @@ class Node {
      * Test API
      * Called by the client after the node indicates an update in test api
      * reports status for one or more tests
-     * @param allNodes if true indicates all tests running are done, usually because event
-     * loop has exit
      */
-    static void CheckTestStatus(bool allNodes);
+    static bool CheckTestStatus();
     static void FatalException(v8::TryCatch &try_catch);
     static void DisplayExceptionLine(v8::TryCatch &try_catch); // hack
 
-    /* watcher stats */
-    void io_inc();
-    void io_dec();
-    void idle_inc();
-    void idle_dec();
+    /* thread checks */
+    static bool IsMainThread();
+
+      /* weak callback */
+    static void WeakCallback(v8::Persistent<v8::Value> value, void *data);
 
     /**
      * Call this when your constructor is invoked as a regular function,
@@ -283,6 +317,12 @@ class Node {
     static node_module_struct*
       get_builtin_module(const char *name);
 
+    // js/native traces
+    static void PrintJSStackTrace(android_LogPriority pri = ANDROID_LOG_WARN);
+#ifndef ANDROID // only supported on desktop for now..
+    static void PrintNativeStackTrace(android_LogPriority pri = ANDROID_LOG_WARN);
+#endif
+
   private:
     void Init();
     void SetupProcessObject();
@@ -295,19 +335,13 @@ class Node {
     static v8::Local<v8::Value> RunScriptInServiceNode(v8::Handle<v8::String> source);
 
     void ReportTestResult();
-    void TestStart(const char *moduleName);
-    __attribute((noinline)) void SetTestStatus(TestStatus status){ m_testStatus = status; }
-    __attribute((noinline)) void SetTestState(TestState state);
+    void TestStart(const char *moduleName, double timeout);
+    __attribute__((noinline)) void SetTestStatus(TestStatus status){ m_testStatus = status; }
+    void SetTestState(TestState state);
     void TestDone();
 
-    /**
-     * Cancel activity from tests (test.cancelAcitivy()), this sends release event
-     * to all active modules attached to the current node  useful for unit testing
-     * release of resources during page navigation
-     */
-    void CancelActivity();
-
     v8::Persistent<v8::Object>  m_process;
+    v8::Persistent<v8::Object>  m_global;
     v8::Persistent<v8::Object>  m_test;
     v8::Persistent<v8::Context> m_context;
     v8::Persistent<v8::Context> m_browserContext;
@@ -319,6 +353,7 @@ class Node {
     TestState m_testState;
     std::string m_moduleName;
     StopWatch m_stopWatch;
+    bool m_inTestMode;
 
     // modules registered to the current node instance
     std::vector<NodeModule*> m_modules;
@@ -329,6 +364,9 @@ class Node {
     uv_check_t m_check_tick_watcher;
     uv_idle_t m_tick_spinner;
     bool m_need_tick_cb;
+
+    // watcher for timeouts
+    uv_timer_t  m_test_timeout_watcher;
 
     // NodeClient (e.g. webkit node proxy)
     NodeClient *m_client;
@@ -393,4 +431,6 @@ v8::Local<v8::Value> ErrnoException(int errorno, const char *syscall = NULL,
 void SetErrno(uv_err_code code);
 
 }  // namespace node
+
+#endif // __cplusplus
 #endif

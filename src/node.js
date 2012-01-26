@@ -74,48 +74,53 @@
     // this._events[type] = [] (this == process)
 
     var Module = NativeModule.require('module');
-    var proteusModLoader = Module._load('proteusModLoader', null);
+    var proteusModLoader = Module.require('proteusModLoader', null);
     var loadModule = function(request, successCB, errorCB) {
       console.info("loadModule: " + request);
 
       if (typeof errorCB !== 'function') {
         errorCB = function(e) {
-          console.error("error in loadModule: " + e);
-          //throw e;
+          console.error("loadModule: unable to load module: " + request);
+          if (e instanceof Error) {
+            console.error(e.stack);
+          } else {
+            console.error(e);
+          }
         }
       }
 
+      // FIXME: we need to specify the error object for loadModule and the error codes
       if (typeof request !== 'string' || typeof successCB != 'function') {
-        console.error("request: " + request + " successCB: " + successCB);
-        return errorCB("Invalid arguments");
+        console.error("loadModule: Invalid arguments: request: " + request + " successCB: " + successCB);
+        return errorCB(new Error("Invalid arguments"));
       }
 
       var isValidLoadModulePath = /^\s*[\w-.]+\s*$/.test(request);
       if (!isValidLoadModulePath) {
-        return errorCB("Invalid request: " + request);
+        console.error("loadModule: Invalid request: " + request);
+        return errorCB(new Error("Invalid request: " + request));
       }
 
-      // REQ: loadModule(foo) will lookup module named "public-foo" in the downloads directory
-      console.verbose("node.js, loadModule. calling Module._load, request = " + request);
-
+      // loadModule(foo) will lookup module named "public-foo" in the downloads directory
+      console.verbose("node.js, loadModule. calling Module.require, request = " + request);
 
       var proteusModLoaderObj = new proteusModLoader();
-      proteusModLoaderObj.loadPackage('public-' + request, function(){
-	                             try {
-					    var module = Module._load('public-' + request, null);
-					    successCB(module);
-					  } catch (e) {
-					    errorCB(e);
-					  }
-	                             },
-				     function(e){
-					 errorCB(e);
-				     });
+      var loadSuccessCB = function() {
+        var module = Module.require('public-' + request, null);
+        // errors in successCB (caller code) should not be caught by errorCB
+          if (typeof module.loadAsync === 'function'){
+            module.loadAsync(successCB, errorCB);
+	}
+	else{
+	  successCB(module);
+	}
+      }
+      proteusModLoaderObj.loadPackage('public-' + request, loadSuccessCB, function(e){ errorCB(e); });
     };
 
     // expose loadModuleSync in the node context for service node case
     global.loadModuleSync = function(path) {
-      return Module._load('public-' + path, null);
+      return Module.require('public-' + path, null);
     }
 
     // expose async loadModule as well in case modules want to use it

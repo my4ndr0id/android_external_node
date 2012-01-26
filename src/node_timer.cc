@@ -46,9 +46,11 @@ void Timer::Initialize(Handle<Object> target) {
   constructor_template->InstanceTemplate()->SetInternalFieldCount(1);
   constructor_template->SetClassName(String::NewSymbol("Timer"));
 
-  timeout_symbol = NODE_PSYMBOL("timeout");
-  repeat_symbol = NODE_PSYMBOL("repeat");
-  callback_symbol = NODE_PSYMBOL("callback");
+  if (timeout_symbol.IsEmpty()) {
+    timeout_symbol = NODE_PSYMBOL("timeout");
+    repeat_symbol = NODE_PSYMBOL("repeat");
+    callback_symbol = NODE_PSYMBOL("callback");
+  }
 
   NODE_SET_PROTOTYPE_METHOD(constructor_template, "start", Timer::Start);
   NODE_SET_PROTOTYPE_METHOD(constructor_template, "stop", Timer::Stop);
@@ -100,6 +102,9 @@ void Timer::OnTimeout(EV_P_ ev_timer *watcher, int revents) {
   }
 
   Local<Function> callback = Local<Function>::Cast(callback_v);
+
+  // enter the callbacks context
+  Context::Scope cscope(callback->CreationContext());
 
   TryCatch try_catch;
 

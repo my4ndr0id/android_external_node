@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011, Code Aurora Forum. All rights reserved.
+ * Copyright (c) 2011-2012, Code Aurora Forum. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -26,251 +26,209 @@
  * OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
  * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-
-//var unzipWrapBindings = require('./unzip.node');
+"use strict";
+//var unzipWrapBindings = require('./unzip.node'); //uncomment to make this mod dynamic
 var unzipWrapBindings = process.binding('unzip');
 var fs = require('fs');
 var path = require('path');
-
 var rmdirRSync = fs.rmdirRSync;
 var mkdirsSync = fs.mkdirsRSync;
-var PERM = 0777 ;//Owner read / write, other read only
+var PERM = 448; //Owner read / write, other read only
 
-exports.getFileFromZip = function(srcZipFilePath, file){
-  console.info("In getFileFromZip :");
-  var buffer;
-  try{
-
-    // create the unzip object
-    var unzipObj = new unzipWrapBindings.createUnzip();
-
-    // set the src zip file
-    unzipObj.setZipFilePath(srcZipFilePath);
-
-    // get the Raw file from the zip file
-    buffer = unzipObj.getRawFile(file);
-
+exports.getFileFromZip = function (srcZipFilePath, file) {
+    console.info("In getFileFromZip :");
+    var buffer;
+    try {
+        // create the unzip object
+        var unzipObj = new unzipWrapBindings.createUnzip();
+        // set the src zip file
+        unzipObj.setZipFilePath(srcZipFilePath);
+        // get the Raw file from the zip file
+        buffer = unzipObj.getRawFile(file);
+    } catch (ex) {
+        console.error("Error  getFileFromZip:" + ex);
     }
-  catch(ex){
-    console.error("Error  getFileFromZip:" + ex );
-  }
-  return buffer;
+    return buffer;
 };
 
-exports.getFileFromZipBuffer = function(srcZipBuffer, file){
-  console.info("In getFileFromZipBuffer :");
-  var buffer;
-  try{
-
-    // create the unzip object
-    var unzipObj = new unzipWrapBindings.createUnzip();
-
-
-    // set the src zip buffer
-    unzipObj.setZipBuffer(srcZipBuffer);
-
-    // get the Raw file from the zip file
-    buffer = unzipObj.getRawFile(file);
+exports.getFileFromZipBuffer = function (srcZipBuffer, file) {
+    console.info("In getFileFromZipBuffer :");
+    var buffer;
+    try {
+        // create the unzip object
+        var unzipObj = new unzipWrapBindings.createUnzip();
+        // set the src zip buffer
+        unzipObj.setZipBuffer(srcZipBuffer);
+        // get the Raw file from the zip file
+        buffer = unzipObj.getRawFile(file);
+    } catch (ex) {
+        console.error("Error  getFileFromZipBuffer:" + ex);
     }
-  catch(ex){
-    console.error("Error  getFileFromZipBuffer:" + ex );
-  }
-  return buffer;
+    return buffer;
 };
 
-
-exports.decompressZipBuffer = function(srcZipBuffer, destFolder){
-
-  if ((srcZipBuffer === undefined) || (srcZipBuffer === null) || !(srcZipBuffer instanceof Buffer )) {
-    console.error("Invalid srcZipBuffer   ");
-    throw("Invalid srcZipBuffer");
-    return;
-  }
-
-  console.info("In decompressZipBuffer :");
-  try{
-
-    // check if we have a / else append to the end
-    if( destFolder.substr(-1) === "/" ) {
-
-    }
-    else{
-      destFolder += '/';
-    }
-
-    // clean up the destFolder folder
-    rmdirRSync(destFolder);
-
-    console.info("Destination :" + destFolder);
-
-    // create the unzip object
-    var unzipObj = new unzipWrapBindings.createUnzip();
-
-    // set the src zip buffer
-    unzipObj.setZipBuffer(srcZipBuffer);
-
-    // get the files present on the zip file
-    var files = unzipObj.listFiles();
-
-    console.info("decompressZipBuffer :: Files in Zip :" + files);
-
+exports.decompressZipBuffer = function (srcZipBuffer, destFolder) {
     var result = true;
-
-    // get the raw file from the zip file and create it at the destination
-    for (i in files){
-
-      // skip folders
-      if (files[i].charAt(files[i].length - 1) == '/' )
-      {
-	console.info("Skiping Folder :" + files[i]);
-	continue;
-      }
-
-      console.info("Processing File :" + files[i]);
-
-      // get the Raw file from the zip file
-      var buffer = unzipObj.getRawFile(files[i]);
-
-      // create destination path
-      var destFile = destFolder + files[i];
-
-      var lastpos = destFile.lastIndexOf("/");
-
-      var folders = destFile.substring(0,lastpos);
-
-      console.info("Folders for the file " + folders);
-
-      // use fs after the merge
-      mkdirsSync(folders,PERM);
-
-      if (!path.existsSync(folders)){
-	console.error("Error creating Folders : " + folders);
-	// remove the whole directory created for the module
-	rmdirRSync(destFolder);
-	return false;
-      }
-
-      // write the raw filr to destination
-
-      //if (fs.isDirectory(destFile) == false){
-      var err = fs.writeFileSync(destFile, buffer);
-      if(err) {
-	  console.error("Error Writing to File : " +err);
-	  // remove the whole directory created for the module
-	  rmdirRSync(destFolder);
-
-	  return false;
-      }
-      else {
-	console.info("The file was saved!");
-      }
-
-
-      console.info("File Created:" + destFile);
-      //}
+    if ((srcZipBuffer === undefined) || (srcZipBuffer === null) || !(srcZipBuffer instanceof Buffer)) {
+        console.error("Invalid srcZipBuffer   ");
+        throw ("Invalid srcZipBuffer");
     }
-  }
-  catch(ex){
-    result = false;
-    // remove the whole directory created for the module
-    rmdirRSync(destFolder);
-    console.error("Error  decompressZipBuffer:" + ex );
-  }
-  return result;
+    console.info("In decompressZipBuffer :");
+    try {
+        // check if we have a / else append to the end
+        if (destFolder.substr(-1) != "/") {
+            destFolder += '/';
+        }
+        try {
+            if (path.existsSync(destFolder)) {
+                // clean up the destFolder folder
+                rmdirRSync(destFolder);
+            }
+        } catch (ex) {
+            console.info("Error removing  :" + destFolder);
+            throw ex;
+        }
+        console.info("Destination :" + destFolder);
+        // create the unzip object
+        var unzipObj = new unzipWrapBindings.createUnzip();
+        // set the src zip buffer
+        unzipObj.setZipBuffer(srcZipBuffer);
+        // get the files present on the zip file
+        var files = unzipObj.listFiles();
+        console.info("decompressZipBuffer :: Files in Zip :" + files);
+        // get the raw file from the zip file and create it at the destination
+        for (var i in files) {
+            // skip folders
+            if (files[i].charAt(files[i].length - 1) == '/') {
+                console.info("Skiping Folder :" + files[i]);
+                continue;
+            }
+            console.info("Processing File :" + files[i]);
+            // get the Raw file from the zip file
+            var buffer = unzipObj.getRawFile(files[i]);
+            // create destination path
+            var destFile = destFolder + files[i];
+            var lastpos = destFile.lastIndexOf("/");
+            var folders = destFile.substring(0, lastpos);
+            console.info("Folders for the file " + folders);
+            // use fs after the merge
+            try {
+                mkdirsSync(folders, PERM);
+            } catch (ex) {
+                console.error("Error creating Folders : " + folders);
+                // remove the whole directory created for the module
+                rmdirRSync(destFolder);
+                return false;
+            }
+            if (path.existsSync(folders) === false) {
+                console.error("Error creating Folders : " + folders);
+                // remove the whole directory created for the module
+                rmdirRSync(destFolder);
+                return false;
+            }
+            // write the raw filr to destination
+            var err = fs.writeFileSync(destFile, buffer);
+            if (err) {
+                console.error("Error Writing to File : " + err);
+                // remove the whole directory created for the module
+                rmdirRSync(destFolder);
+                return false;
+            } else {
+                console.info("The file was saved!");
+            }
+            console.info("File Created:" + destFile);
+        }
+    } catch (ex) {
+        result = false;
+        // remove the whole directory created for the module
+        try {
+            rmdirRSync(destFolder);
+        } catch (err) {
+            console.error("Error  decompressZipBuffer:rmdirRSync:" + err);
+        }
+        console.error("Error  decompressZipBuffer:" + ex);
+    }
+    return result;
 };
 
-exports.decompressZipFile = function(srcZipFilePath, destFolder){
-  console.info("In decompressZipFile :");
-  try{
-
-    // check if we have a / else append to the end
-    if( destFolder.substr(-1) === "/" ) {
-
-    }
-    else{
-      destFolder += '/';
-    }
-
-    // clean up the destFolder folder
-    rmdirRSync(destFolder);
-
-
-    console.info("Destination :" + destFolder);
-
-    // create the unzip object
-    var unzipObj = new unzipWrapBindings.createUnzip();
-
-    // set the src zip file
-    unzipObj.setZipFilePath(srcZipFilePath);
-
-    // get the files present on the zip file
-    var files = unzipObj.listFiles();
-
-    console.info("decompressZipFile :: Files in Zip :" + files);
-
+exports.decompressZipFile = function (srcZipFilePath, destFolder) {
     var result = true;
-
-    // get the raw file from the zip file and create it at the destination
-    for (i in files){
-
-
-      // skip folders
-      if (files[i].charAt(files[i].length - 1) == '/' )
-      {
-	console.info("Skiping Folder :" + files[i]);
-	continue;
-
-      }
-
-      console.info("Processing File :" + files[i]);
-
-      // get the Raw file from the zip file
-      var buffer = unzipObj.getRawFile(files[i]);
-
-      // create destination path
-      var destFile = destFolder + files[i];
-
-      var lastpos = destFile.lastIndexOf("/");
-
-      var folders = destFile.substring(0,lastpos);
-
-      console.info("Folders for the file" + folders);
-
-      // use fs after the merge
-      mkdirsSync(folders,PERM);
-
-      if (!path.existsSync(folders)){
-	console.error("Error creating Folders : " + folders);
-	// remove the whole directory created for the module
-	rmdirRSync(destFolder);
-	return false;
-      }
-
-
-      //if (fs.isDirectory(destFile) == false){
-      // write the raw filr to destination
-      var err = fs.writeFileSync(destFile, buffer);
-      if(err) {
-	  console.error("Error Writing to File" + err);
-	  // remove the whole directory created for the module
-	  rmdirRSync(destFolder);
-
-	  return false;
-      }
-      else {
-	console.info("The file was saved!");
-      }
-
-
-      console.info("File Created:" + destFile);
-      // }
+    console.info("In decompressZipFile :");
+    try {
+        // check if we have a / else append to the end
+        if (destFolder.substr(-1) != "/") {
+            destFolder += '/';
+        }
+        // clean up the destFolder folder
+        try {
+            if (path.existsSync(destFolder)) {
+                // clean up the destFolder folder
+                rmdirRSync(destFolder);
+            }
+        } catch (ex) {
+            console.info("Error removing  :" + destFolder);
+            throw ex;
+        }
+        console.info("Destination :" + destFolder);
+        // create the unzip object
+        var unzipObj = new unzipWrapBindings.createUnzip();
+        // set the src zip file
+        unzipObj.setZipFilePath(srcZipFilePath);
+        // get the files present on the zip file
+        var files = unzipObj.listFiles();
+        console.info("decompressZipFile :: Files in Zip :" + files);
+        // get the raw file from the zip file and create it at the destination
+        for (var i in files) {
+            // skip folders
+            if (files[i].charAt(files[i].length - 1) == '/') {
+                console.info("Skiping Folder :" + files[i]);
+                continue;
+            }
+            console.info("Processing File :" + files[i]);
+            // get the Raw file from the zip file
+            var buffer = unzipObj.getRawFile(files[i]);
+            // create destination path
+            var destFile = destFolder + files[i];
+            var lastpos = destFile.lastIndexOf("/");
+            var folders = destFile.substring(0, lastpos);
+            console.info("Folders for the file" + folders);
+            try {
+                mkdirsSync(folders, PERM);
+            } catch (ex) {
+                console.error("Error creating Folders : " + folders);
+                // remove the whole directory created for the module
+                rmdirRSync(destFolder);
+                return false;
+            }
+            if (path.existsSync(folders) === false) {
+                console.error("Error creating Folders : " + folders);
+                // remove the whole directory created for the module
+                rmdirRSync(destFolder);
+                return false;
+            }
+            //if (fs.isDirectory(destFile) == false){
+            // write the raw filr to destination
+            var err = fs.writeFileSync(destFile, buffer);
+            if (err) {
+                console.error("Error Writing to File" + err);
+                // remove the whole directory created for the module
+                rmdirRSync(destFolder);
+                return false;
+            } else {
+                console.info("The file was saved!");
+            }
+            console.info("File Created:" + destFile);
+            // }
+        }
+    } catch (ex) {
+        result = false;
+        // remove the whole directory created for the module
+        try {
+            rmdirRSync(destFolder);
+        } catch (err) {
+            console.error("Error  decompressZipBuffer:rmdirRSync:" + err);
+        }
+        console.error("Error  decompressZipFile: " + ex);
     }
-  }
-  catch(ex){
-    result = false;
-    // remove the whole directory created for the module
-    rmdirRSync(destFolder);
-    console.error("Error  decompressZipFile: " + ex );
-  }
-  return result;
+    return result;
 };

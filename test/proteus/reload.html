@@ -1,0 +1,14 @@
+<html>
+<script type="text/javascript">
+function onLoad() {
+    navigator.loadModule('test', function(testmod){
+        document.body.innerHTML = "<h1> Test module loaded !!!<h1>"
+        setInterval(function() { window.location.reload(); }, 500);
+        });
+
+}
+</script>
+
+<body onload = "onLoad()">
+</body>
+</html>

@@ -1,7 +1,8 @@
-exports.runTest = function(request) {
+
+function runTest(request) {
   try {
     console.log("runTest: " + request);
-    test.start(request);
+    test.start(request, 2.5);
     require(request);
     test.check();
   } catch (e) {
@@ -9,8 +10,10 @@ exports.runTest = function(request) {
     console.error("\n" + e.stack);
     test.fail();
   }
+  //test.watcherThread();
 }
 
 exports.require = require;
 exports.process = process;
 exports.test = test;
+exports.runTest = runTest;

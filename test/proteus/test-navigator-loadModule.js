@@ -39,18 +39,18 @@ function createDirIfRequired(module, userequire) {
   } else {
     basedir = process.proteusPath;
   }
- 
+
   var filename = path.resolve(basedir, module);
   var moduledir = path.dirname(filename);
   console.log("*********** ensuring directory " + moduledir);
   try {
       fs.unlinkSync(moduledir);
   } catch (e) {console.log(e);}
- 
+
   try {
     fs.mkdirSync(moduledir, 0777);
   } catch (e) { console.log(e); }
- 
+
   console.log("basedir: " + basedir + " moduledir: " + moduledir + " filename: " + filename);
   return filename;
 }

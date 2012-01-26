@@ -28,10 +28,11 @@
 #
 
 #!/bin/bash
-
+set -x
 TARGET="browser"
 TESTDIR="test/simple"
 FILTER=""
+COUNT=1
 
 help() {
   echo "Usage: "
@@ -39,6 +40,7 @@ help() {
   echo "             -d|--dir=<testdir>                                 "
   echo "             -f|--filter=<optional filer>                       "
   echo "             -s|--silent (output silent or verbose)             "
+  echo "             -c|--count (test count per invocation)             "
   echo "e.g. run http tests from test/simple on desktop shell           "
   echo "run_tests.sh -t=desktop -d=test/simple -f=http                  "
   exit
@@ -47,42 +49,46 @@ help() {
 for i in $*
 do
    case $i in
-        -t=*|--target=*)
-                TARGET=`echo $i | sed 's/[-a-zA-Z0-9]*=//'`
-                ;;
-        -d=*|--dir=*)
-                TESTDIR=`echo $i | sed 's/[-a-zA-Z0-9]*=//'`
-                ;;
-        -f=*|--filter=*)
-                FILTER=`echo $i | sed 's/[-a-zA-Z0-9]*=//'`
-                ;;
-        -s|--silent)
-                SILENT='true'
-                ;;
-        -h|--help)
-                help
-                ;;
-         *)
-                echo "Invalid option: " $i
-                help
-                ;;
+      -t=*|--target=*)
+          TARGET=`echo $i | sed 's/[-a-zA-Z0-9]*=//'`
+          ;;
+      -d=*|--dir=*)
+          TESTDIR=`echo $i | sed 's/[-a-zA-Z0-9]*=//'`
+          ;;
+      -f=*|--filter=*)
+          FILTER=`echo $i | sed 's/[-a-zA-Z0-9]*=//'`
+          ;;
+      -s|--silent)
+          SILENT='true'
+          ;;
+      -c=*|--count=*)
+          COUNT=`echo $i | sed 's/[-a-zA-Z0-9]*=//'`
+          ;;
+      -h|--help)
+          help
+          ;;
+      *)
+          echo "Invalid option: " $i
+          help
+          ;;
    esac
 done
 
 echo "**  TARGET: " $TARGET
 echo "** TESTDIR: " $TESTDIR
 echo "**  FILTER: " $FILTER
+echo "**   COUNT: " $COUNT
 
 # at is for the trace during exception
 if [ "$SILENT" == "true" ]; then
-   GREPSTR="\"TESTRUN|PASSED|FAILED|CRASHED\"";
+   GREPSTR="\"TESTRUN|STARTED|PASSED|FAILED|TIMEOUT|CRASHED\"";
 else
-   GREPSTR="\"TESTSTR|TESTRUN|STARTED|PASSED|FAILED|CRASHED|Error|    at \"";
+   GREPSTR="\"TESTSTR|TESTRUN|STARTED|PASSED|FAILED|CRASHED|TIMEOUT|Error:|    at \"";
 fi
 
 if [ "$TARGET" == "desktop" ]; then
-   gnome-terminal --geometry=200 -x bash -c "NODE_DEBUG=E ./proteus/tools/node_test.py $TARGET $TESTDIR $FILTER| egrep $GREPSTR; exec bash"
+   gnome-terminal --geometry=200 -x bash -c "NODE_DEBUG=E ./proteus/tools/node_test.py $TARGET $TESTDIR $COUNT $FILTER | egrep $GREPSTR; exec bash"
 else
-   gnome-terminal -x bash -c  "./proteus/tools/node_test.py $TARGET $TESTDIR $FILTER; exec bash"
-   gnome-terminal --geometry=200 -x bash -c "adb logcat -c; adb logcat | egrep $GREPSTR; exec bash"
+   gnome-terminal -x bash -c  "./proteus/tools/node_test.py $TARGET $TESTDIR $FILTER $COUNT; exec bash"
+   gnome-terminal --geometry=200 -x bash -c "adb logcat -c; adb logcat -v time| egrep $GREPSTR; exec bash"
 fi

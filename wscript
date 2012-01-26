@@ -757,7 +757,7 @@ def build(bld):
     source.append(macros_loc_debug)
     js2c.JS2C(source, targets)
 
-  modloaderjslist = ' ' + bld.path.ant_glob('modules/proteus/proteusModLoader/lib/*.js') + ' ' + bld.path.ant_glob('modules/proteus/proteusPackageExtractor/lib/*.js') + ' ' + bld.path.ant_glob('modules/proteus/proteusUnzip/lib/*.js') + ' ../../external/node-sqlite-sync/sqlite.js '
+  modloaderjslist = ' ' + bld.path.ant_glob('modules/proteus/proteusModLoader/lib/*.js') + ' ' + bld.path.ant_glob('modules/proteus/proteusPackageExtractor/lib/*.js') + ' ' + bld.path.ant_glob('modules/proteus/proteusUnzip/lib/*.js') + ' ../../external/node-sqlite-sync/sqlite.js ' + bld.path.ant_glob('modules/proteus/proteusDeviceInfo/lib/*.js')
   native_cc = bld.new_task_gen(
     source='src/node.js ' + bld.path.ant_glob('lib/*.js') + modloaderjslist,
     target="src/node_natives.h",
@@ -887,9 +887,7 @@ def build(bld):
 
   # Modloader
   node.source += " modules/proteus/proteusUnzip/src/node_unzip.cc "
-
-  # add permissions
-  node.source += " src/node_permission.cc "
+  node.source += " modules/proteus/proteusDeviceInfo/src/node_deviceinfo.cc "
 
   node.source += bld.env["PLATFORM_FILE"]
 
@@ -902,6 +900,7 @@ def build(bld):
     deps/uv/src/ev
     deps/uv/src/ares
   """
+
   # proteus: link dependancy for sqlite
   bld.env.append_value('LINKFLAGS', '-lsqlite3');
 

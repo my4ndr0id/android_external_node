@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011, Code Aurora Forum. All rights reserved.
+ * Copyright (c) 2011-2012, Code Aurora Forum. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -52,9 +52,10 @@ class UnzipUtil: ObjectWrap {
     static void InitUnzip(Handle<Object> target){
 
       HandleScope scope;
-      Local<FunctionTemplate> t = FunctionTemplate::New(New);
-
-      s_ct = Persistent<FunctionTemplate>::New(t);
+      if (s_ct.IsEmpty()) {
+        Local<FunctionTemplate> t = FunctionTemplate::New(New);
+        s_ct = Persistent<FunctionTemplate>::New(t);
+      }
       s_ct->InstanceTemplate()->SetInternalFieldCount(1);
       s_ct->SetClassName(String::NewSymbol("createUnzip"));
 
@@ -74,21 +75,21 @@ class UnzipUtil: ObjectWrap {
 
 
       if (args.Length() > 0)
-	return v8::ThrowException(v8::String::New("Bad parameters"));
+        return v8::ThrowException(v8::String::New("Bad parameters"));
 
       UnzipUtil* unzipUtil = ObjectWrap::Unwrap<UnzipUtil>(args.This());
 
       if (!unzipUtil->zip)
-	return v8::ThrowException(v8::String::New("Did not initialise zip Object"));
-
-
+        return v8::ThrowException(v8::String::New("Did not initialise zip Object"));
+    
+    
       Zipfile * zipPriv = (Zipfile*)unzipUtil->zip;
       Local<Array> files = Array::New(zipPriv->entryCount);
 
 
       Zipentry * entryPriv = zipPriv->entries;
       for (int i=0; i<zipPriv->entryCount; i++) {
-	 files->Set(v8::Number::New(i), v8::String::New((char *)entryPriv->fileName, entryPriv->fileNameLength));
+        files->Set(v8::Number::New(i), v8::String::New((char *)entryPriv->fileName, entryPriv->fileNameLength));
         entryPriv = entryPriv->next;
       }
       return scope.Close(files);
@@ -108,16 +109,16 @@ class UnzipUtil: ObjectWrap {
 
 
       if (*args[0] == NULL)
-	return v8::ThrowException(v8::String::New("Bad parameters"));
+        return v8::ThrowException(v8::String::New("Bad parameters"));
 
 
       UnzipUtil* unzipUtil = ObjectWrap::Unwrap<UnzipUtil>(args.This());
 
       if (!unzipUtil->zip)
-	return v8::ThrowException(v8::String::New("Did not initialise zip Object"));
+        return v8::ThrowException(v8::String::New("Did not initialise zip Object"));
 
       zipentry_t entry;
-      size_t unsize,size;
+      size_t size;
       void* scratch;
 
       String::Utf8Value srcFilePath(args[0]->ToString());
@@ -125,20 +126,17 @@ class UnzipUtil: ObjectWrap {
       entry = lookup_zipentry(unzipUtil->zip, *srcFilePath);
 
       if (entry == NULL) {
-	 NODE_LOGI("%s, zip file does not contain file : %s\n", __FUNCTION__, *srcFilePath);
-	return v8::ThrowException(v8::String::New("zip file does not contain file"));
+        NODE_LOGE("%s, zip file does not contain file : %s\n", __FUNCTION__, *srcFilePath);
+        return v8::ThrowException(v8::String::New("zip file does not contain file"));
       }
-      unsize = get_zipentry_size(entry);
-      size = unsize * 1.001;
+      size = get_zipentry_size(entry);
       scratch = malloc(size);
-
-      NODE_LOGI("%s, scratch=%p\n", __FUNCTION__, scratch);
 
       int err;
       err = decompress_zipentry(entry, scratch, size);
       if (err != 0) {
-	NODE_LOGI("%s, error decompressing file\n", __FUNCTION__);
-	return v8::ThrowException(v8::String::New("error decompressing file"));
+        NODE_LOGE("%s, error decompressing file\n", __FUNCTION__);
+        return v8::ThrowException(v8::String::New("error decompressing file"));
       }
 
       node::Buffer *return_buffer = node::Buffer::New( (char*)scratch, size );
@@ -170,7 +168,7 @@ class UnzipUtil: ObjectWrap {
 	return v8::ThrowException(v8::String::New("Bad parameters"));
 
       if (*args[0] == NULL)
-	return v8::ThrowException(v8::String::New("Bad parameters"));
+        return v8::ThrowException(v8::String::New("Bad parameters"));
 
       UnzipUtil* unzipUtil = ObjectWrap::Unwrap<UnzipUtil>(args.This());
 
@@ -181,7 +179,7 @@ class UnzipUtil: ObjectWrap {
       bool result = unzipUtil->InitializeByBuffer(buffer_data, buffer_length);
 
       if(!result)
-	return v8::ThrowException(v8::String::New("Incorrect Buffer"));
+        return v8::ThrowException(v8::String::New("Incorrect Buffer"));
 
       return scope.Close(Boolean::New(true));
     }
@@ -206,7 +204,7 @@ class UnzipUtil: ObjectWrap {
 
       bool result = unzipUtil->InitializeByFile(*zipFilePath);
 
-      NODE_LOGI("%s, in func new unzip file : %s\n", __FUNCTION__, *zipFilePath);
+      NODE_LOGV("%s, in func new unzip file : %s\n", __FUNCTION__, *zipFilePath);
 
       if(!result)
 	return v8::ThrowException(v8::String::New("Incorrect File"));
@@ -221,8 +219,8 @@ class UnzipUtil: ObjectWrap {
 
       zip = init_zipfile(buf, bufferLength);
       if (zip == NULL) {
-	NODE_LOGI("%s, inti_zipfile failed \n", __FUNCTION__);
-	return false;
+        NODE_LOGE("%s, inti_zipfile failed \n", __FUNCTION__);
+        return false;
       }
 
       return true;
@@ -231,11 +229,11 @@ class UnzipUtil: ObjectWrap {
     bool InitializeByFile (char* filePath)
     {
       FILE* f;
-      size_t size, unsize;
-      NODE_LOGI("%s, unzip file : %s\n", __FUNCTION__, filePath);
+      size_t size;
+      NODE_LOGV("%s, unzip file : %s\n", __FUNCTION__, filePath);
       f = fopen(filePath, "r");
       if (f == NULL) {
-        NODE_LOGI("%s, couldn't open file : %s\n", __FUNCTION__, filePath);
+        NODE_LOGE("%s, couldn't open file : %s\n", __FUNCTION__, filePath);
         return false;
       }
       fseek(f, 0, SEEK_END);
@@ -247,7 +245,7 @@ class UnzipUtil: ObjectWrap {
 
       zip = init_zipfile(buf, size);
       if (zip == NULL) {
-	NODE_LOGI("%s, inti_zipfile failed \n", __FUNCTION__);
+        NODE_LOGE("%s, inti_zipfile failed \n", __FUNCTION__);
 	return false;
       }
       fclose(f);

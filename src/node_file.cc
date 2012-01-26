@@ -96,7 +96,6 @@ static inline bool SetCloseOnExec(int fd) {
 class FileNodeModule : public NodeModule {
   public:
     FileNodeModule(Node *node) : m_node(node) {}
-    void HandleInternalEvent(InternalEvent *e);
     Node *node() { return m_node; }
     void add(eio_req* req);
     void remove(eio_req* req);
@@ -109,10 +108,6 @@ class FileNodeModule : public NodeModule {
     vector<eio_req*> m_eio_list;
     void erase_(eio_req* req);
 };
-
-void FileNodeModule::HandleInternalEvent(InternalEvent *e) {
-  NODE_LOGW("%s,deprecated", __FUNCTION__);
-}
 
 void FileNodeModule::add(eio_req* req) {
   NODE_LOGM("add eio_req %p", req);
@@ -169,12 +164,12 @@ class EioData {
     EioData(const Local<Value> &v, FileNodeModule *module) : m_module(module), m_req(0) {
       m_jsCallback = Persistent<Function>::New(Local<Function>::Cast(v));
     }
-   
+
     ~EioData() {
       m_jsCallback.Dispose();
       m_module->remove(m_req);
     }
-   
+
     void set_eio_req(eio_req *req) { m_req = req; }
     Handle<Function> callback() { return m_jsCallback; }
 
@@ -302,13 +297,13 @@ static int After(eio_req *req) {
         assert(0 && "Unhandled eio response");
     }
   }
- 
+
   TryCatch try_catch;
   callback->Call(callback->CreationContext()->Global(), argc, argv);
   if (try_catch.HasCaught()) {
     Node::FatalException(try_catch);
   }
- 
+
   // proteus: deletion of data destroys the persistent handle
   delete data;
 
@@ -329,7 +324,7 @@ static int After(eio_req *req) {
 
 static Handle<Value> Release(const Arguments& args) {
   HandleScope scope;
- 
+
   // Get to the module object from the holder (module reference)
   Handle<Object> moduleObject = args.Holder()->ToObject();
   FileNodeModule *module =
@@ -1143,14 +1138,16 @@ void File::Initialize(Handle<Object> target) {
   NODE_SET_METHOD(target, "utimes", UTimes);
 #endif // __POSIX__
   NODE_SET_METHOD(target, "futimes", FUTimes);
- 
+
   // proteus: add release api, to be called on process.exit event
   // this should cleanup all the watchers that this module started..
   NODE_SET_METHOD(target, "release", Release);
 
-  errno_symbol = NODE_PSYMBOL("errno");
-  encoding_symbol = NODE_PSYMBOL("node:encoding");
-  buf_symbol = NODE_PSYMBOL("__buf");
+  if (errno_symbol.IsEmpty()) {
+    errno_symbol = NODE_PSYMBOL("errno");
+    encoding_symbol = NODE_PSYMBOL("node:encoding");
+    buf_symbol = NODE_PSYMBOL("__buf");
+  }
 }
 
 void InitFs(Handle<Object> target) {

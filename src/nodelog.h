@@ -66,8 +66,9 @@ int __android_log_print_wrap(int prio, const char *tag,  const char *fmt, ...);
 #define NODE_LOGE(...) __android_log_print_wrap(ANDROID_LOG_ERROR,   LOG_TAG_NODE, __VA_ARGS__);
 
 // Function entry
-#define NODE_LOGF() __android_log_print_wrap(ANDROID_LOG_VERBOSE, LOG_TAG_NODE, "%s, %d", __FUNCTION__, __LINE__); //Function entry
-#define NODE_LOGFR() __android_log_print_wrap(ANDROID_LOG_VERBOSE, LOG_TAG_NODE, "%s, %d: return", __FUNCTION__, __LINE__); //Function entry
+#define NODE_LOGF() __android_log_print_wrap(ANDROID_LOG_VERBOSE, LOG_TAG_NODE, "%s:%d", __FUNCTION__, __LINE__); //Function entry
+#define NODE_LOGFT() __android_log_print_wrap(ANDROID_LOG_VERBOSE, LOG_TAG_NODE, "%s:%d [%p]", __FUNCTION__, __LINE__, this); //Function entry with this
+#define NODE_LOGFR() __android_log_print_wrap(ANDROID_LOG_VERBOSE, LOG_TAG_NODE, "%s:%d: return", __FUNCTION__, __LINE__); //Function entry
 
 // some functions get invoked too many times (e.g. ev_invoke_pending), so logs for these are disabled by default
 // if you need to log those enable the following
@@ -83,16 +84,30 @@ int __android_log_print_wrap(int prio, const char *tag,  const char *fmt, ...);
 
 // Disable asserts in release mode..
 #ifdef NDEBUG
+
 #define NODE_ASSERT(x) { \
   if (!(x)) {__android_log_print_wrap(ANDROID_LOG_ERROR, LOG_TAG_NODE, "%s, %s, %d, *** ASSERT *** \"%s\"", \
       __FILE__, __FUNCTION__, __LINE__, #x); }}
+
+#define NODE_ASSERT_REACHABLE() { \
+  __android_log_print_wrap(ANDROID_LOG_ERROR, LOG_TAG_NODE, "%s, %s, %d, *** ASSERT *** REACHABLE", \
+      __FILE__, __FUNCTION__, __LINE__);}
+
 #else
+
 #define NODE_ASSERT(x) { \
   if (!(x)) {__android_log_print_wrap(ANDROID_LOG_ERROR, LOG_TAG_NODE, "%s, %s, %d, *** ASSERT *** \"%s\"", \
       __FILE__, __FUNCTION__, __LINE__, #x); *(int *)0xBAADBAAD = 0;}}
+
+#define NODE_ASSERT_REACHABLE() { \
+  __android_log_print_wrap(ANDROID_LOG_ERROR, LOG_TAG_NODE, "%s, %s, %d, *** ASSERT *** REACHABLE", \
+      __FILE__, __FUNCTION__, __LINE__); *(int *)0xBAADBAAD = 0;}
+
 #endif
 
 #define NODE_NI() NODE_LOGW("%s, %d NOT_IMPLEMENTED", __FUNCTION__, __LINE__);
+
+
 #endif
 
 

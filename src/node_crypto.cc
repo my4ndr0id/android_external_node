@@ -3674,14 +3674,16 @@ void InitCrypto(Handle<Object> target) {
   Sign::Initialize(target);
   Verify::Initialize(target);
 
-  subject_symbol    = NODE_PSYMBOL("subject");
-  issuer_symbol     = NODE_PSYMBOL("issuer");
-  valid_from_symbol = NODE_PSYMBOL("valid_from");
-  valid_to_symbol   = NODE_PSYMBOL("valid_to");
-  fingerprint_symbol   = NODE_PSYMBOL("fingerprint");
-  name_symbol       = NODE_PSYMBOL("name");
-  version_symbol    = NODE_PSYMBOL("version");
-  ext_key_usage_symbol = NODE_PSYMBOL("ext_key_usage");
+  if (subject_symbol.IsEmpty()) {
+    subject_symbol    = NODE_PSYMBOL("subject");
+    issuer_symbol     = NODE_PSYMBOL("issuer");
+    valid_from_symbol = NODE_PSYMBOL("valid_from");
+    valid_to_symbol   = NODE_PSYMBOL("valid_to");
+    fingerprint_symbol   = NODE_PSYMBOL("fingerprint");
+    name_symbol       = NODE_PSYMBOL("name");
+    version_symbol    = NODE_PSYMBOL("version");
+    ext_key_usage_symbol = NODE_PSYMBOL("ext_key_usage");
+  }
 }
 
 }  // namespace crypto

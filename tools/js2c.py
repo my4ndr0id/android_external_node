@@ -37,8 +37,7 @@ import re
 import sys
 import string
 
-#proteus - pickup local jsmin.py instead of from v8 to avoid conflicts with default v8
-#sys.path.append(dirname(__file__) + "/../deps/v8/tools");
+sys.path.append(dirname(__file__) + "/../deps/v8/tools");
 import jsmin
 
 

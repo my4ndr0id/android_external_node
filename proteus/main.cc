@@ -39,6 +39,8 @@
 #define LOG_TAG_NODE "NodeProxy"
 #include "node.h"
 
+//#define LOADMODULE_ASYNC 1 // Tests downloader, much slower
+
 using namespace v8;
 using namespace node;
 using namespace std;
@@ -59,11 +61,17 @@ class NodeProxy : public NodeClient {
     void processNodeEvents();
 
     // NodeClient interface
-    void HandleNodeEvent(NodeEvent *ev);
+    void HandleNodeEvent(NodeEvent *) {}
+    static void HandleInvokePending();
     void OnDelete();
     void OnTestDone();
     string url() { return ""; }
+    virtual NodeView* Unwrap(v8::Handle<v8::Object> object) { return 0; }
+    virtual Handle<Value> CreatePreviewNode(NodeSource* ) { return Handle<Value>(); }
+    virtual Handle<Value> CreateArrayBuffer(void*, int size) {return Handle<Value>();}
+    virtual std::string GetEnvironmentProperty(const char *prop, bool type) {return "";};
 
+    static Handle<Value> loadModuleSyncCallback(const Arguments& args);
     static Handle<Value> loadModuleCallback(const Arguments& args);
     void ClearNode();
 
@@ -75,6 +83,7 @@ class NodeProxy : public NodeClient {
     bool m_testDone;
 };
 
+bool s_reload = false;
 bool s_multiple = false;
 bool s_parallel = false;
 int s_useMultipleContexts = 0;
@@ -87,21 +96,10 @@ int s_mainThreadId = 0;
 int NodeProxy::s_pipefd[2];
 bool isAndroid = false;
 
-void NodeProxy::HandleNodeEvent(NodeEvent *ev){
-  // The below get invoked on the libev thread..
-  switch (ev->type) {
-    case NODE_EVENT_LIBEV_INVOKE_PENDING:
-    case NODE_EVENT_LIBEV_DONE:
-      {
-        NODE_ASSERT(s_mainThreadId != gettid());
-        int ret = write(NodeProxy::s_pipefd[1], ev->type == NODE_EVENT_LIBEV_INVOKE_PENDING ? "0" : "1", 2);
-        NODE_LOGM("%s, ** done write to the pipe - %s", __FUNCTION__, ev->type == NODE_EVENT_LIBEV_INVOKE_PENDING ? "PENDING": "DONE");
-        break;
-      }
-
-    default:
-      NODE_ASSERT(0);
-  }
+void NodeProxy::HandleInvokePending() {
+  NODE_ASSERT(s_mainThreadId != gettid());
+  int ret = write(NodeProxy::s_pipefd[1], "0", 2);
+  NODE_LOGM("%s, ** write to the pipe - PENDING", __FUNCTION__);
 }
 
 void NodeProxy::ClearNode() {
@@ -133,9 +131,16 @@ void NodeProxy::OnTestDone() {
 }
 
 const char* ModuleCode(const char *test) {
+#ifdef LOADMODULE_ASYNC
+  std::string code = "\
+    navigator.loadModule('test', function(testmod) { \
+        testmod.runTest('" + std::string(test) + "'); \
+        });";
+#else
   std::string code = "\
     var testmod = navigator.loadModuleSync('test'); \
         testmod.runTest('" + std::string(test) + "');";
+#endif
 
   return strdup(code.c_str());
 }
@@ -176,27 +181,22 @@ void NodeProxy::processNodeEvents() {
   m_testDone = false;
   while (1) {
     char s[2] = "";
+    NODE_LOGV("HANDSHAKE: %s, ** blocked on read", __FUNCTION__);
     int nbytes = read(s_pipefd[0], s, sizeof(s));
+    NODE_LOGV("HANDSHAKE: %s, ** out of read received %s", __FUNCTION__, s[0] == '0' ? "INVOKE_PENDING" : "EV_DONE");
     if (nbytes == -1) {
       NODE_LOGV("%s, no data to read from pipe non blocking", __FUNCTION__);
       NODE_LOGFR();
       return;
     }
     else if (s[0] == '0') {
-      NODE_LOGM("%s, ** wakeup handling pending callbacks", __FUNCTION__);
-      if (Node::InvokePending()) {
-        Node::CheckTestStatus(false);
-        NODE_LOGE("%s, InvokePending returned done processing", __FUNCTION__);
-        if (s_nodes.size() <= 1) {
-          NODE_LOGFR();
-          return;
-        }
+      NODE_LOGV("HANDSHAKE: %s, ** wakeup handling pending callbacks", __FUNCTION__);
+      Node::InvokePending();
+      if (Node::CheckTestStatus()) {
+        NODE_LOGV("HANDSHAKE: %s, INVOKE_PENDING returned done processing, returning", __FUNCTION__);
+        NODE_LOGFR();
+        return;
       }
-    } else if (s[0] == '1') {
-      NODE_LOGD("%s, ** done event processing ", __FUNCTION__);
-      Node::CheckTestStatus(true);
-      NODE_LOGFR();
-      return;
     } else if (s[0] == '2') {
       // NODE_EVENT_TEST_DONE
       if (s_nodes.size() <= 1) {
@@ -210,7 +210,7 @@ void NodeProxy::processNodeEvents() {
   NODE_LOGFR();
 }
 
-Handle<Value> NodeProxy::loadModuleCallback(const Arguments& args) {
+Handle<Value> NodeProxy::loadModuleSyncCallback(const Arguments& args) {
   NODE_LOGF();
 
   HandleScope scope;
@@ -232,6 +232,28 @@ Handle<Value> NodeProxy::loadModuleCallback(const Arguments& args) {
   }
 }
 
+Handle<Value> NodeProxy::loadModuleCallback(const Arguments& args) {
+  NODE_LOGF();
+
+  HandleScope scope;
+  if (args[0].IsEmpty() || !args[0]->IsString()) {
+    return ThrowException(String::New("Invalid arguments to loadModule"));
+  }
+
+  Handle<Object> navigator = args.Holder()->ToObject();
+  NodeProxy *np = static_cast<NodeProxy*>(navigator->GetPointerFromInternalField(0));
+  np->m_node = new Node(np);
+  s_nodes.push_back(np->m_node);
+  Handle<Function> loadModule = np->m_node->GetLoadModule();
+  NODE_ASSERT(!loadModule.IsEmpty() && loadModule->IsFunction());
+  if (!loadModule.IsEmpty() && loadModule->IsFunction()) {
+    navigator->Set(v8::String::New("loadModule"), loadModule);
+    return np->m_node->LoadModule(args);
+  } else {
+    return Undefined();
+  }
+}
+
 void NodeProxy::runTest(const char *test) {
   NODE_LOGI("%s, %s", __PRETTY_FUNCTION__, test);
   m_test = test;
@@ -246,8 +268,13 @@ void NodeProxy::runTest(const char *test) {
     navigator_template->InstanceTemplate()->SetInternalFieldCount(1);
     Handle<Object> navigator = navigator_template->GetFunction()->NewInstance();
     m_context->Global()->Set(v8::String::New("navigator"), navigator);
-    navigator->Set(v8::String::New("loadModuleSync"),
+#ifdef LOADMODULE_ASYNC
+    navigator->Set(v8::String::New("loadModule"),
         FunctionTemplate::New(loadModuleCallback)->GetFunction());
+#else
+    navigator->Set(v8::String::New("loadModuleSync"),
+        FunctionTemplate::New(loadModuleSyncCallback)->GetFunction());
+#endif
     navigator->SetPointerInInternalField(0, this);
   }
 
@@ -278,7 +305,6 @@ NodeProxy::~NodeProxy() {
   NODE_LOGV("%s: %p", __FUNCTION__, this);
   if (m_node) {
     delete m_node;
-    m_node = 0;
   }
 }
 
@@ -287,14 +313,26 @@ int main(int argc, char *argv[]) {
     if (strstr(argv[i], "--wait")){
       sleep(15);
     }
+
+    if (strcmp(argv[i], "-r") == 0) {
+      s_reload = true;
+    }
+
+    if (strcmp(argv[i], "-m") == 0) {
+      s_multiple = true;
+    }
   }
+
+  V8::SetFlagsFromCommandLine(&argc, argv, false);
 
 #ifdef ANDROID
   isAndroid = true;
 #endif
 
   // should we create multiple nodes
-  s_multiple = getenv("MULTIPLE") ? true : false;
+  if (getenv("MULTIPLE")) {
+    s_multiple = true;
+  }
 
   // should we run tests parallely
   s_parallel = getenv("PARALLEL") ? true : false;
@@ -307,11 +345,14 @@ int main(int argc, char *argv[]) {
     s_runTestsInSingleNodeSerially = true;
   }
 
+  if (getenv("RELOAD")) {
+    s_reload = true;
+  }
   s_mainThreadId = gettid();
   int ret = pipe(NodeProxy::pipefd());
   assert(ret == 0);
 
-  Node::Initialize(false, isAndroid ? "/data/data/com.android.browser" : getenv("PWD"));
+  Node::Initialize(NodeProxy::HandleInvokePending, false, isAndroid ? "/data/data/com.android.browser" : getenv("PWD"));
   int nTests = argc - 1;
   if (s_useMultipleContexts) {
     NodeProxy *tests = new NodeProxy[nTests];
@@ -336,19 +377,37 @@ int main(int argc, char *argv[]) {
   else if (s_runTestsInSingleNodeSerially) {
     NODE_LOGE("** s_runTestsInSingleNodeSerially");
     NodeProxy proxy;
-    for (int i = 1; i <= nTests; i++ ) {
-      NODE_LOGI("main, running test %s", argv[i]);
-      proxy.runTest(argv[i]);
-      proxy.processNodeEvents();
-    }
+    do {
+      for (int i = 1; i <= nTests; i++ ) {
+        if (argv[i][0] == '-') {
+          continue;
+        }
+        NODE_LOGI("main, running test %s", argv[i]);
+        proxy.runTest(argv[i]);
+        proxy.processNodeEvents();
+      }
+      if (s_reload) {
+        static int iterations = 0;
+        NODE_LOGD("RELOAD, ITERATION : %d", ++iterations);
+      }
+    } while(s_reload);
   } else if (s_runTestsInNewNodeSerially) {
     NODE_LOGE("** s_runTestsInNewNodeSerially");
-    for (int i = 1; i <= nTests; i++ ) {
-      NODE_LOGI("main, running test %s", argv[i]);
-      NodeProxy proxy;
-      proxy.runTest(argv[i]);
-      proxy.processNodeEvents();
-    }
+    do {
+      for (int i = 1; i <= nTests; i++ ) {
+        if (argv[i][0] == '-') {
+          continue;
+        }
+        NODE_LOGI("main, running test %s", argv[i]);
+        NodeProxy proxy;
+        proxy.runTest(argv[i]);
+        proxy.processNodeEvents();
+      }
+      if (s_reload) {
+        static int iterations = 0;
+        NODE_LOGD("RELOAD, ITERATION : %d", ++iterations);
+      }
+    } while (s_reload);
   }
 
   return 0;

@@ -51,6 +51,7 @@ test-child-process-spawn-node.js
 test-child-process-kill.js
 test-child-process-deprecated-api.js
 test-process-kill-null.js
+test-exec-max-buffer.js
 
 #uses child process
 test-eval-require.js
@@ -135,13 +136,42 @@ test-require-cache.js
 
 # run these tests independantly and not along with other tests since these have dependancies (e.g. http socket open)
 # ultimately we need to fix the bug why the tests dont cleanup the watchers..
-^test-tls-set-encoding.js
-^test-tls-request-timeout.js
-^test-tcp-wrap-listen.js
-^test-stream-pipe-cleanup.js
+#test-http-extra-response.js
+#test-http-head-request.js
+#test-http-head-response-has-no-body.js
+#test/simple/test-http-host-headers.js
+#test-http-keep-alive-close-on-header.js
+#test-tls-set-encoding.js
+#test-tls-request-timeout.js
+#test-tcp-wrap-listen.js
+#test-stream-pipe-cleanup.js
+#test-http-keep-alive.js
+#test-http-malformed-request.js
+#test-http-mutable-headers.js
+#test-net-server-try-ports.js
+#test-http-host-headers.js
+#test-net-server-bind.js
+#test-net-server-max-connections.js
+#test-net-socket-timeout.js
+#test-net-stream.js
+#test-next-tick-ordering2.js
+#test-http-parser.js
 
-# takes too long to run
+# takes too long to run (test individually)
 test-http-many-keep-alive-connections.js
+test-stream-pipe-multi.js
+test-fs-sir-writes-alot.js
+test-pipe.js
+test-url.js
+test-https-agent.js
+test-dgram-pingpong.js
+test-net-server-max-connections.js
 
 # zlib removed, unused
 test-zlib-from-gzip.js
+test-zlib.js
+
+# FIXME: these tests dont cleanup property affecting other tests in multi test run, disable for now
+test-http-expect-continue.js
+test-net-remote-address-port.js
+test-stream-pipe-cleanup.js

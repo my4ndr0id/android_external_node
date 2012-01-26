@@ -2,6 +2,7 @@
  * libev event processing core, watcher management
  *
  * Copyright (c) 2007,2008,2009,2010,2011 Marc Alexander Lehmann <libev@schmorp.de>
+ * Copyright (c) 2011, 2012 Code Aurora Forum. All rights reserved.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without modifica-
@@ -101,7 +102,7 @@
 #  undef EV_USE_POLL
 #  define EV_USE_POLL 0
 # endif
-   
+
 # if HAVE_EPOLL_CTL && HAVE_SYS_EPOLL_H
 #  ifndef EV_USE_EPOLL
 #   define EV_USE_EPOLL EV_FEATURE_BACKENDS
@@ -110,7 +111,7 @@
 #  undef EV_USE_EPOLL
 #  define EV_USE_EPOLL 0
 # endif
-   
+
 # if HAVE_KQUEUE && HAVE_SYS_EVENT_H
 #  ifndef EV_USE_KQUEUE
 #   define EV_USE_KQUEUE EV_FEATURE_BACKENDS
@@ -119,7 +120,7 @@
 #  undef EV_USE_KQUEUE
 #  define EV_USE_KQUEUE 0
 # endif
-   
+
 # if HAVE_PORT_H && HAVE_PORT_CREATE
 #  ifndef EV_USE_PORT
 #   define EV_USE_PORT EV_FEATURE_BACKENDS
@@ -155,7 +156,7 @@
 #  undef EV_USE_EVENTFD
 #  define EV_USE_EVENTFD 0
 # endif
- 
+
 #endif
 
 #include <math.h>
@@ -196,8 +197,9 @@ EV_CPP(extern "C" {)
 # undef EV_AVOID_STDIO
 #endif
 
-//proteus
+// proteus:
 #include "nodelog.h"
+#include "node.h"
 
 /* OS X, in its infinite idiocy, actually HARDCODES
  * a limit of 1024 into their select. Where people have brains,
@@ -891,7 +893,7 @@ array_realloc (int elem, void *base, int *cur, int cnt)
 /*****************************************************************************/
 
 /* dummy callback for pending events */
-static void noinline
+void noinline
 pendingcb (EV_P_ ev_prepare *w, int revents)
 {
 }
@@ -899,6 +901,8 @@ pendingcb (EV_P_ ev_prepare *w, int revents)
 void noinline
 ev_feed_event (EV_P_ void *w, int revents)
 {
+  LOCK;
+
   W w_ = (W)w;
   int pri = ABSPRI (w_);
 
@@ -911,6 +915,8 @@ ev_feed_event (EV_P_ void *w, int revents)
       pendings [pri][w_->pending - 1].w      = w_;
       pendings [pri][w_->pending - 1].events = revents;
     }
+
+  UNLOCK;
 }
 
 inline_speed void
@@ -977,6 +983,7 @@ ev_feed_fd_event (EV_P_ int fd, int revents)
 inline_size void
 fd_reify (EV_P)
 {
+
   int i;
 
 #if EV_SELECT_IS_WINSOCKET || EV_USE_IOCP
@@ -1219,7 +1226,7 @@ downheap (ANHE *heap, int N, int k)
 
       heap [k] = heap [c];
       ev_active (ANHE_w (heap [k])) = k;
-      
+
       k = c;
     }
 
@@ -1353,7 +1360,7 @@ evpipe_write (EV_P_ EV_ATOMIC_T *flag)
 
 /* called whenever the libev signal pipe */
 /* got some events (signal, async) */
-static void
+void
 pipecb (EV_P_ ev_io *iow, int revents)
 {
   int i;
@@ -1506,7 +1513,7 @@ child_reap (EV_P_ int chain, int pid, int status)
 #endif
 
 /* called on sigchld etc., calls waitpid */
-static void
+void
 childcb (EV_P_ ev_signal *sw, int revents)
 {
   int pid, status;
@@ -1585,7 +1592,7 @@ ev_supported_backends (void)
   if (EV_USE_EPOLL ) flags |= EVBACKEND_EPOLL;
   if (EV_USE_POLL  ) flags |= EVBACKEND_POLL;
   if (EV_USE_SELECT) flags |= EVBACKEND_SELECT;
-  
+
   return flags;
 }
 
@@ -2144,6 +2151,7 @@ ev_invoke_pending (EV_P)
         ANPENDING *p = pendings [pri] + --pendingcnt [pri];
 
         p->w->pending = 0;
+        NODE_LOGV("WATCHERS: ev_invoke_pending, p=%p w=%p cb=%p", p, p->w, p->w->cb);
         EV_CB_INVOKE (p->w, p->events);
         EV_FREQUENT_CHECK;
       }
@@ -2656,11 +2664,16 @@ ev_start (EV_P_ W w, int active)
   pri_adjust (EV_A_ w);
   w->active = active;
   ev_ref (EV_A);
+
+  // proteus:
+  on_ev_start(w);
 }
 
 inline_size void
 ev_stop (EV_P_ W w)
 {
+  // proteus:
+  on_ev_stop(w);
   ev_unref (EV_A);
   w->active = 0;
 }
@@ -2670,10 +2683,14 @@ ev_stop (EV_P_ W w)
 void noinline
 ev_io_start (EV_P_ ev_io *w)
 {
+  LOCK;
+
   int fd = w->fd;
 
-  if (expect_false (ev_is_active (w)))
+  if (expect_false (ev_is_active (w))) {
+    UNLOCK;
     return;
+  }
 
   assert (("libev: ev_io_start called with negative fd", fd >= 0));
   assert (("libev: ev_io_start called with illegal event mask", !(w->events & ~(EV__IOFDSET | EV_READ | EV_WRITE))));
@@ -2689,14 +2706,20 @@ ev_io_start (EV_P_ ev_io *w)
   w->events &= ~EV__IOFDSET;
 
   EV_FREQUENT_CHECK;
+
+  UNLOCK_N_WAKEUP;
 }
 
 void noinline
 ev_io_stop (EV_P_ ev_io *w)
 {
+  LOCK;
+
   clear_pending (EV_A_ (W)w);
-  if (expect_false (!ev_is_active (w)))
+  if (expect_false (!ev_is_active (w))) {
+    UNLOCK;
     return;
+  }
 
   assert (("libev: ev_io_stop called with illegal fd (must stay constant after start!)", w->fd >= 0 && w->fd < anfdmax));
 
@@ -2708,13 +2731,19 @@ ev_io_stop (EV_P_ ev_io *w)
   fd_change (EV_A_ w->fd, EV_ANFD_REIFY);
 
   EV_FREQUENT_CHECK;
+
+  UNLOCK;
 }
 
 void noinline
 ev_timer_start (EV_P_ ev_timer *w)
 {
-  if (expect_false (ev_is_active (w)))
+  LOCK;
+
+  if (expect_false (ev_is_active (w))) {
+    UNLOCK;
     return;
+  }
 
   ev_at (w) += mn_now;
 
@@ -2732,14 +2761,20 @@ ev_timer_start (EV_P_ ev_timer *w)
   EV_FREQUENT_CHECK;
 
   /*assert (("libev: internal timer heap corruption", timers [ev_active (w)] == (WT)w));*/
+
+  UNLOCK_N_WAKEUP;
 }
 
 void noinline
 ev_timer_stop (EV_P_ ev_timer *w)
 {
+  LOCK;
+
   clear_pending (EV_A_ (W)w);
-  if (expect_false (!ev_is_active (w)))
+  if (expect_false (!ev_is_active (w))) {
+    UNLOCK;
     return;
+  }
 
   EV_FREQUENT_CHECK;
 
@@ -2762,11 +2797,14 @@ ev_timer_stop (EV_P_ ev_timer *w)
   ev_stop (EV_A_ (W)w);
 
   EV_FREQUENT_CHECK;
+
+  UNLOCK;
 }
 
 void noinline
 ev_timer_again (EV_P_ ev_timer *w)
 {
+  LOCK;
   EV_FREQUENT_CHECK;
 
   if (ev_is_active (w))
@@ -2787,6 +2825,7 @@ ev_timer_again (EV_P_ ev_timer *w)
     }
 
   EV_FREQUENT_CHECK;
+  UNLOCK_N_WAKEUP;
 }
 
 ev_tstamp
@@ -3379,8 +3418,12 @@ ev_stat_stop (EV_P_ ev_stat *w)
 void
 ev_idle_start (EV_P_ ev_idle *w)
 {
-  if (expect_false (ev_is_active (w)))
+  LOCK;
+
+  if (expect_false (ev_is_active (w))) {
+    UNLOCK;
     return;
+  }
 
   pri_adjust (EV_A_ (W)w);
 
@@ -3397,14 +3440,20 @@ ev_idle_start (EV_P_ ev_idle *w)
   }
 
   EV_FREQUENT_CHECK;
+
+  UNLOCK_N_WAKEUP;
 }
 
 void
 ev_idle_stop (EV_P_ ev_idle *w)
 {
+  LOCK;
+
   clear_pending (EV_A_ (W)w);
-  if (expect_false (!ev_is_active (w)))
+  if (expect_false (!ev_is_active (w))) {
+    UNLOCK;
     return;
+  }
 
   EV_FREQUENT_CHECK;
 
@@ -3419,6 +3468,8 @@ ev_idle_stop (EV_P_ ev_idle *w)
   }
 
   EV_FREQUENT_CHECK;
+
+  UNLOCK_N_WAKEUP;
 }
 #endif
 
@@ -3426,8 +3477,12 @@ ev_idle_stop (EV_P_ ev_idle *w)
 void
 ev_prepare_start (EV_P_ ev_prepare *w)
 {
-  if (expect_false (ev_is_active (w)))
+  LOCK;
+
+  if (expect_false (ev_is_active (w))) {
+    UNLOCK;
     return;
+  }
 
   EV_FREQUENT_CHECK;
 
@@ -3436,14 +3491,20 @@ ev_prepare_start (EV_P_ ev_prepare *w)
   prepares [preparecnt - 1] = w;
 
   EV_FREQUENT_CHECK;
+
+  UNLOCK_N_WAKEUP;
 }
 
 void
 ev_prepare_stop (EV_P_ ev_prepare *w)
 {
+  LOCK;
+
   clear_pending (EV_A_ (W)w);
-  if (expect_false (!ev_is_active (w)))
+  if (expect_false (!ev_is_active (w))) {
+    UNLOCK;
     return;
+  }
 
   EV_FREQUENT_CHECK;
 
@@ -3457,6 +3518,8 @@ ev_prepare_stop (EV_P_ ev_prepare *w)
   ev_stop (EV_A_ (W)w);
 
   EV_FREQUENT_CHECK;
+
+  UNLOCK;
 }
 #endif
 
@@ -3464,8 +3527,12 @@ ev_prepare_stop (EV_P_ ev_prepare *w)
 void
 ev_check_start (EV_P_ ev_check *w)
 {
-  if (expect_false (ev_is_active (w)))
+  LOCK;
+
+  if (expect_false (ev_is_active (w))) {
+    UNLOCK;
     return;
+  }
 
   EV_FREQUENT_CHECK;
 
@@ -3474,14 +3541,20 @@ ev_check_start (EV_P_ ev_check *w)
   checks [checkcnt - 1] = w;
 
   EV_FREQUENT_CHECK;
+
+  UNLOCK_N_WAKEUP;
 }
 
 void
 ev_check_stop (EV_P_ ev_check *w)
 {
+  LOCK;
+
   clear_pending (EV_A_ (W)w);
-  if (expect_false (!ev_is_active (w)))
+  if (expect_false (!ev_is_active (w))) {
+    UNLOCK;
     return;
+  }
 
   EV_FREQUENT_CHECK;
 
@@ -3495,11 +3568,14 @@ ev_check_stop (EV_P_ ev_check *w)
   ev_stop (EV_A_ (W)w);
 
   EV_FREQUENT_CHECK;
+
+  UNLOCK;
 }
 #endif
 
 #if EV_EMBED_ENABLE
-void noinline
+
+  void noinline
 ev_embed_sweep (EV_P_ ev_embed *w)
 {
   ev_run (w->other, EVRUN_NOWAIT);
@@ -3690,8 +3766,12 @@ ev_cleanup_stop (EV_P_ ev_cleanup *w)
 void
 ev_async_start (EV_P_ ev_async *w)
 {
-  if (expect_false (ev_is_active (w)))
+  LOCK;
+
+  if (expect_false (ev_is_active (w))) {
+    UNLOCK;
     return;
+  }
 
   w->sent = 0;
 
@@ -3704,14 +3784,20 @@ ev_async_start (EV_P_ ev_async *w)
   asyncs [asynccnt - 1] = w;
 
   EV_FREQUENT_CHECK;
+
+  UNLOCK_N_WAKEUP;
 }
 
 void
 ev_async_stop (EV_P_ ev_async *w)
 {
+  LOCK;
+
   clear_pending (EV_A_ (W)w);
-  if (expect_false (!ev_is_active (w)))
+  if (expect_false (!ev_is_active (w))) {
+    UNLOCK;
     return;
+  }
 
   EV_FREQUENT_CHECK;
 
@@ -3725,6 +3811,8 @@ ev_async_stop (EV_P_ ev_async *w)
   ev_stop (EV_A_ (W)w);
 
   EV_FREQUENT_CHECK;
+
+  UNLOCK;
 }
 
 void
