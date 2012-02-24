@@ -175,3 +175,11 @@ test-zlib.js
 test-http-expect-continue.js
 test-net-remote-address-port.js
 test-stream-pipe-cleanup.js
+
+# > 4s
+test-http-buffer-sanity.js
+test-net-binary.js
+test-http-agent.js
+test-net-reconnect.js
+
+test-pump-file2tcp.js

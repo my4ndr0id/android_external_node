@@ -133,12 +133,11 @@ class NodeClient {
     virtual ~NodeClient() {}
     virtual void HandleNodeEvent(NodeEvent*) = 0;
     virtual void OnDelete() = 0;
-    virtual void OnTestDone() = 0;
-    virtual std::string url() = 0;
+    virtual const char* url() = 0;
     virtual NodeView* Unwrap(v8::Handle<v8::Object> object) = 0;
     virtual v8::Handle<v8::Value> CreatePreviewNode(NodeSource *) = 0;
     virtual v8::Handle<v8::Value> CreateArrayBuffer(void *buf, int size) = 0;
-    virtual std::string GetEnvironmentProperty(const char *prop, bool ) = 0;
+    virtual const char* GetEnvironmentProperty(const char *prop, bool ) = 0;
 };
 
 class StopWatch {
@@ -185,7 +184,7 @@ class Node {
      * @param isBrowser specifies if client is a browser or a shell
      * @param moduleRootPath Root directory specified by client for installing downloaded modules
      */
-    static void Initialize(void (*clientcb)(), bool isBrowser, std::string moduleRootPath);
+    static void Initialize(void (*clientcb)(), bool isBrowser, const char* moduleRootPath, struct ev_loop *hostLoop = 0);
 
     /**
      * Node client
@@ -217,7 +216,7 @@ class Node {
      * @return handle to the loadModule function in node context
      */
     v8::Handle<v8::Function> GetLoadModule();
-    v8::Handle<v8::Function> GetLoadModuleSync();
+    v8::Handle<v8::Function> GetRequire();
 
     /**
      * This invokes loadModule in node's context. This function also
@@ -226,7 +225,6 @@ class Node {
      * @return Reference to the module after loading it
      */
     v8::Handle<v8::Value> LoadModule(const v8::Arguments& args);
-    v8::Handle<v8::Value> LoadModuleSync(const v8::Arguments& args);
 
     /**
      * This can be used to emit custom events from native code,
@@ -270,9 +268,9 @@ class Node {
      * Called by the client after the node indicates an update in test api
      * reports status for one or more tests
      */
-    static bool CheckTestStatus();
-    static void FatalException(v8::TryCatch &try_catch);
-    static void DisplayExceptionLine(v8::TryCatch &try_catch); // hack
+    static void FatalException(v8::TryCatch &try_catch, bool isHost = false);
+    static void DisplayExceptionLine(v8::TryCatch &try_catch);
+    void ReportException(v8::TryCatch &try_catch, bool show_line);
 
     /* thread checks */
     static bool IsMainThread();
@@ -319,9 +317,17 @@ class Node {
 
     // js/native traces
     static void PrintJSStackTrace(android_LogPriority pri = ANDROID_LOG_WARN);
+
 #ifndef ANDROID // only supported on desktop for now..
     static void PrintNativeStackTrace(android_LogPriority pri = ANDROID_LOG_WARN);
+    static std::string AddressToString(void *addr);
 #endif
+
+    // returns host loop, e.g. in non-browser environment
+    static struct ev_loop* HostLoop();
+
+    // return exit code for test.py
+    static int ExitCode();
 
   private:
     void Init();
@@ -334,12 +340,6 @@ class Node {
      */
     static v8::Local<v8::Value> RunScriptInServiceNode(v8::Handle<v8::String> source);
 
-    void ReportTestResult();
-    void TestStart(const char *moduleName, double timeout);
-    __attribute__((noinline)) void SetTestStatus(TestStatus status){ m_testStatus = status; }
-    void SetTestState(TestState state);
-    void TestDone();
-
     v8::Persistent<v8::Object>  m_process;
     v8::Persistent<v8::Object>  m_global;
     v8::Persistent<v8::Object>  m_test;
@@ -347,13 +347,9 @@ class Node {
     v8::Persistent<v8::Context> m_browserContext;
     v8::Persistent<v8::Object>  m_bindingCache;
     v8::Persistent<v8::Function>  m_loadModule;
-    v8::Persistent<v8::Function>  m_loadModuleSync;
+    v8::Persistent<v8::Function>  m_require;
 
-    TestStatus m_testStatus;
-    TestState m_testState;
-    std::string m_moduleName;
     StopWatch m_stopWatch;
-    bool m_inTestMode;
 
     // modules registered to the current node instance
     std::vector<NodeModule*> m_modules;

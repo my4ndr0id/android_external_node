@@ -1,3 +1,31 @@
+##
+ # Copyright (c) 2011-2012, Code Aurora Forum. All rights reserved.
+ #
+ # Redistribution and use in source and binary forms, with or without
+ # modification, are permitted provided that the following conditions are
+ # met:
+ #     * Redistributions of source code must retain the above copyright
+ #       notice, this list of conditions and the following disclaimer.
+ #     * Redistributions in binary form must reproduce the above
+ #       copyright notice, this list of conditions and the following
+ #       disclaimer in the documentation and/or other materials provided
+ #       with the distribution.
+ #     * Neither the name of Code Aurora Forum, Inc. nor the names of its
+ #       contributors may be used to endorse or promote products derived
+ #       from this software without specific prior written permission.
+ #
+ # THIS SOFTWARE IS PROVIDED "AS IS" AND ANY EXPRESS OR IMPLIED
+ # WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+ # MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT
+ # ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS
+ # BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ # CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ # SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR
+ # BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+ # WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE
+ # OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
+ # IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+##
 UT=false
 CAMERA=false
 MODLOADER=false
@@ -5,17 +33,21 @@ UNZIP=false
 PERMISSION=false
 FILESYSTEM=false
 DEVICEINFO=false
+PROTEUS_TESTS=false
 for i in $*
 do
    case $i in
        -u|--unit-tests)
                UT=true
                ;;
-      -c|--camera)
+       -c|--camera)
                CAMERA=true
               ;;
        -ml|--mod-loader)
               MODLOADER=true
+               ;;
+       -p|--perm)
+               PERMISSION=true
                ;;
        -uz|--unzip)
                UNZIP=true
@@ -46,8 +78,8 @@ set -x
 adb shell am start -a android.intent.action.VIEW -n com.android.browser/.BrowserActivity
 
 # create directories
-PPATH=/data/data/com.android.browser/.proteus
-DPATH=/data/data/com.android.browser/.proteus/downloads
+PPATH=/data/data/com.android.browser/.dapi
+DPATH=/data/data/com.android.browser/.dapi/downloads
 adb shell mkdir $PPATH
 adb shell mkdir $DPATH
 
@@ -79,6 +111,8 @@ if $UT; then
 
   adb shell mkdir $DPATH/public-test
   adb push public-test $DPATH/public-test
+
+  adb push core_tests.html /data/
 fi
 
 if $MODLOADER; then
@@ -105,8 +139,18 @@ fi
 
 # permissions
 if $PERMISSION; then
-  adb push test/proteus/permissions/FeatureWebapp.html /data/
-  adb push test/proteus/permissions/Navigator.html /data/
+  PPATH=$DPATH/public-permission
+  adb shell rm -r $PPATH
+  adb shell mkdir $PPATH
+  adb shell mkdir $PPATH/bin
+  adb shell mkdir $PPATH/lib
+  adb push modules/proteus/permission/package.json $PPATH
+  adb push modules/proteus/permission/lib/permission.js $PPATH/lib/
+  adb push ../../out/target/product/msm8660_surf/symbols/system/lib/permission.so $PPATH/bin/
+  adb push modules/proteus/permission/test/FeatureWebapp.html /data/
+  adb push modules/proteus/permission/test/Navigator.html /data/
+  adb push modules/proteus/permissionUI/test/pemissionUITest.html /data/
+  adb push modules/proteus/testPermissions/test/testpermissions.html /data/
 fi
 
 # To run modloader test

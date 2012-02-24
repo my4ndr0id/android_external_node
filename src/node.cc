@@ -49,14 +49,16 @@
 #endif
 
 #include <sys/prctl.h>
-
 #include <map>
 
 #ifndef ANDROID
 #include <execinfo.h>
 #endif
 
+#include "memleak.h"
+
 #define LOG_WATCHERS 0
+#define PROTEUS_VERSION "0.0.1"
 
 namespace node {
 
@@ -70,12 +72,12 @@ class NodeStatic {
       return s_instance;
     }
 
-    static void create(void (*clientCallback)(), bool isBrowser, std::string moduleRootPath) {
+    static void create(void (*clientCallback)(), bool isBrowser, const char* moduleRootPath, struct ev_loop* hostLoop) {
       NODE_ASSERT(!s_instance);
-      s_instance = new NodeStatic(clientCallback, isBrowser, moduleRootPath);
+      s_instance = new NodeStatic(clientCallback, isBrowser, moduleRootPath, hostLoop);
     }
 
-    NodeStatic(void (*clientCallback)(), bool isBrowser, std::string moduleRootPath);
+    NodeStatic(void (*clientCallback)(), bool isBrowser, const char* moduleRootPath, struct ev_loop* hostLoop);
     static NodeStatic* s_instance;
 
     // idle watcher for triggering another eio_poll
@@ -115,7 +117,6 @@ class NodeStatic {
 
     std::vector< Lock* > s_lockList;
 
-    bool s_testDone;
     bool s_isBrowser;
     bool s_isAndroid;
 
@@ -215,19 +216,14 @@ class NodeStatic {
     // usage in module: test.printJSObject(obj)
     static v8::Handle<v8::Value> TestPrintJSObject(const v8::Arguments& args);
 
-    static v8::Handle<v8::Value> TestStart(const v8::Arguments& args);
-    // check the test status, if we have not added any watchers, report the test is done
-    static v8::Handle<v8::Value> TestCheck(const v8::Arguments& args);
-    static v8::Handle<v8::Value> TestFail(const v8::Arguments& args);
     static v8::Handle<v8::Value> TestBreak(const v8::Arguments& args);
     static Handle<Value> TestRunScript(const Arguments& args);
     static v8::Handle<v8::Value> TestSleep(const v8::Arguments& args);
+    static v8::Handle<v8::Value> TestContext(const v8::Arguments& args);
     static v8::Handle<v8::Value> TestWatcherThread(const v8::Arguments& args);
-
-    static void TestTimeoutHandler(uv_timer_t *w, int revents);
+    static v8::Handle<v8::Value> TestExitCode(const v8::Arguments& args);
 
     static void HandleSIGSEGV(int signal);
-    v8::Handle<v8::Object> TestGetCurrentProcess();
 
     // print stack from js code e.g. test.stack();
     static v8::Handle<v8::Value> TestStack(const v8::Arguments& args);
@@ -237,7 +233,9 @@ class NodeStatic {
     void ReadDebugLevel();
 
     // Logger, similar to console.log
-    static v8::Handle<v8::Value> ProcessLog(const v8::Arguments& args);
+    static Handle<Value> ProcessLog(const Arguments& args);
+    static Handle<Value> LoopRef(const Arguments& args);
+    static Handle<Value> LoopUnref(const Arguments& args);
 
     // dump watcher stats from javascript
     // JS API - test.watcherStats();
@@ -274,10 +272,6 @@ class NodeStatic {
 
     static void EvAcquireCallback (EV_P);
     static void EvReleaseCallback (EV_P);
-
-#ifndef ANDROID
-    std::string AddressToString(void *addr);
-#endif
     void DumpActiveWatchers();
 
     static void FatalException(v8::TryCatch &try_catch);
@@ -285,6 +279,10 @@ class NodeStatic {
 
     StopWatch s_logWatch;
     std::map<ev_watcher*, int> s_watchers;
+    bool s_memLeak;
+
+    struct ev_loop* s_hostLoop;
+    int s_exitCode;
 
     friend class Node;
 };
@@ -292,6 +290,14 @@ class NodeStatic {
 #define si() NodeStatic::instance()
 NodeStatic* NodeStatic::s_instance = 0;
 const char* NodeStatic::LockContextStr[] = { "EV_START", "EV_POLL", "EV_PENDING", "EV_WATCHER" };
+
+static inline v8::Local<v8::String> v8_str(const char* x) {
+  return v8::String::New(x);
+}
+
+static inline v8::Local<v8::Number> v8_num(double d) {
+  return v8::Number::New(d);
+}
 
 Node* NodeStatic::GetNodeFromProcess(Handle<Object> process) {
   Node *n = static_cast<Node*>(process->GetPointerFromInternalField(0));
@@ -306,13 +312,12 @@ Node* NodeStatic::GetNodeFromTest(Handle<Object> test) {
 }
 
 void Node::Tick(void) {
-  NODE_LOGM("%s", __PRETTY_FUNCTION__);
+  NODE_LOGM("Node::Tick()");
 
   // Avoid entering a V8 scope.
   if (!m_need_tick_cb) return;
 
-  // proteus: FIXME
-  // set the context..since FatalException would need it
+  // FIXME (proteus): required for FatalException
   HandleScope scope;
   Context::Scope cscope(m_context);
 
@@ -738,48 +743,51 @@ void Node::DisplayExceptionLine (TryCatch &try_catch) {
     String::Utf8Value sourceline(message->GetSourceLine());
     const char* sourceline_string = *sourceline;
     NODE_LOGE("%s", sourceline_string);
-
-    // Print wavy underline (GetUnderline is deprecated).
-    //int start = message->GetStartColumn();
-    //for (int i = offset; i < start; i++) {
-      //NODE_LOGE(stderr, " ");
-    //}
-    //int end = message->GetEndColumn();
-    //for (int i = start; i < end; i++) {
-      //NODE_LOGE(stderr, "^");
-    //}
   }
 }
 
 void NodeStatic::ReportException(TryCatch &try_catch, bool show_line) {
+  si()->s_exitCode = 1;
+
+  // FIXME:
   HandleScope scope;
-  Handle<Message> message = try_catch.Message();
+  if (Context::InContext()) {
+    Handle<Message> message = try_catch.Message();
 
-  if (show_line) {
-    Node::DisplayExceptionLine(try_catch);
-  }
-
-  String::Utf8Value trace(try_catch.StackTrace());
-  // range errors have a trace member set to undefined
-  if (trace.length() > 0 && !try_catch.StackTrace()->IsUndefined()) {
-     NODE_LOGE("\n%s\n", *trace);
-  } else {
-    // this really only happens for RangeErrors, since they're the only
-    // kind that won't have all this info in the trace, or when non-Error
-    // objects are thrown manually.
-    Local<Value> er = try_catch.Exception();
-    bool isErrorObject = !er.IsEmpty() && er->IsObject() &&
-      !(er->ToObject()->Get(String::New("message"))->IsUndefined()) &&
-      !(er->ToObject()->Get(String::New("name"))->IsUndefined());
-
-    if (isErrorObject) {
-      String::Utf8Value name(er->ToObject()->Get(String::New("name")));
-      NODE_LOGE("%s", *name);
+    if (show_line) {
+      Node::DisplayExceptionLine(try_catch);
     }
-    String::Utf8Value msg(!isErrorObject ? er->ToString()
-        : er->ToObject()->Get(String::New("message"))->ToString());
-    NODE_LOGE("%s\n", *msg);
+    String::Utf8Value trace(try_catch.StackTrace());
+    // range errors have a trace member set to undefined
+    if (trace.length() > 0 && !try_catch.StackTrace()->IsUndefined()) {
+      NODE_LOGE("\n%s\n", *trace);
+    } else {
+      // this really only happens for RangeErrors, since they're the only
+      // kind that won't have all this info in the trace, or when non-Error
+      // objects are thrown manually.
+      Local<Value> er = try_catch.Exception();
+      bool isErrorObject = !er.IsEmpty() && er->IsObject() &&
+        !(er->ToObject()->Get(String::New("message"))->IsUndefined()) &&
+        !(er->ToObject()->Get(String::New("name"))->IsUndefined());
+
+      if (isErrorObject) {
+        String::Utf8Value name(er->ToObject()->Get(String::New("name")));
+        NODE_LOGE("%s", *name);
+      }
+      String::Utf8Value msg(!isErrorObject ? er->ToString()
+          : er->ToObject()->Get(String::New("message"))->ToString());
+      NODE_LOGE("%s\n", *msg);
+    }
+  } else {
+    String::Utf8Value trace(try_catch.StackTrace());
+    if (trace.length() > 0 && !try_catch.StackTrace()->IsUndefined()) {
+      NODE_LOGE("\n%s\n", *trace);
+    }
   }
+}
+
+void Node::ReportException(TryCatch &try_catch, bool show_line) {
+  si()->ReportException(try_catch, show_line);
 }
 
 // Executes a str within the current v8 context.
@@ -912,76 +920,49 @@ Handle<Value> NodeStatic::Compile(const Arguments& args) {
   if (try_catch.HasCaught()) {
     // Hack because I can't get a proper stacktrace on SyntaxError
     si()->ReportException(try_catch, true);
-    NODE_ASSERT(0);
+    NODE_ASSERT_REACHABLE();
     return Undefined();
   }
 
   Local<Value> result = script->Run();
   if (try_catch.HasCaught()) {
     si()->ReportException(try_catch, false);
-    NODE_ASSERT(0);
+    NODE_ASSERT_REACHABLE();
     return Undefined();
   }
 
   return scope.Close(result);
 }
 
-void Node::SetTestState(TestState state) {
-  // check that we dont report results twice for the same test..
-  if (m_testState == DONE) {
-    NODE_ASSERT(state != DONE);
-  }
+void NodeStatic::FatalException(TryCatch &try_catch) {
+  si()->s_exitCode = 1;
 
-  if (m_testState == REPORTED && state != STARTED) {
-    // FIXME: this should not be required..
-    NODE_LOGV("%s, moving from REPORTED state to other than STARTED state, ignoring", __FUNCTION__);
+  static int uncaught_exception_counter = 0;
+  if (uncaught_exception_counter > 0 ) {
     return;
   }
-
-  m_testState = state;
-
-  // if atleast one node is done processing, mark it so that
-  // we indicate it in InvokePending
-  if (m_testState == DONE) {
-    NODE_LOGD("%s, Marking Test State done", __FUNCTION__, m_moduleName.c_str());
-    si()->s_testDone = true;
-  }
-}
-
-void NodeStatic::FatalException(TryCatch &try_catch) {
-  static int uncaught_exception_counter = 0;
 
   HandleScope scope;
-  // FIXME: check why the context is not available in some callbacks
-  // test-http-buffer-sanity.js in browser
   Local<Context> context;
-  if (Context::InContext()) {
-    context = Context::GetCurrent();
+  if (v8::Context::InContext()) {
+    context = v8::Context::GetCurrent();
+  } else if (si()->s_nodes.size() > 0) {
+    context = Local<Context>::New(si()->s_nodes[0]->m_context);
   } else {
-    NODE_LOGW("%s, does not have a context", __FUNCTION__);
-    context = try_catch.Exception().As<Object>()->CreationContext();
-  }
-
-  // Check if uncaught_exception_counter indicates a recursion
-  Context::Scope context_scope(context);
-  Handle<Object> process = si()->TestGetCurrentProcess();
-  if (uncaught_exception_counter > 0 || process.IsEmpty()) {
- //   NODE_ASSERT(0);
-    si()->ReportException(try_catch, true);
-    if (si()->s_nodes[0]->m_inTestMode) {
-      si()->s_nodes[0]->SetTestStatus(FAILED);
-    }
+    si()->ReportException(try_catch, false);
     return;
   }
 
-  Node *n = GetNodeFromProcess(process);
-  if (n->m_inTestMode) {
-    if (n->m_testState == DONE) {
-      return;
-    }
-    n->SetTestState(DONE);
+  Context::Scope context_scope(context);
+  Local<Object> prototype = context->Global()->GetPrototype()->ToObject();
+  Node *n = static_cast<Node*>(prototype->GetPointerFromInternalField(0));
+  NODE_ASSERT(n);
+  if (!n || !n->m_process->IsObject()) {
+    si()->ReportException(try_catch, false);
+    return;
   }
 
+  Handle<Object> process = n->m_process;
   static Persistent<String> listeners_symbol;
   static Persistent<String> uncaught_exception_symbol;
   static Persistent<String> emit_symbol;
@@ -997,23 +978,12 @@ void NodeStatic::FatalException(TryCatch &try_catch) {
   Local<String> uncaught_exception_symbol_l = Local<String>::New(uncaught_exception_symbol);
   Local<Value> argv[1] = { uncaught_exception_symbol_l  };
   Local<Value> ret = listeners->Call(process, 1, argv);
-  //NODE_ASSERT(!ret.IsEmpty() && ret->IsArray());
+  NODE_ASSERT(!ret.IsEmpty() && ret->IsArray());
 
-  if (!ret.IsEmpty() && ret->IsArray() ) {
-    // Report and exit if process has no "uncaughtException" listener
-    Local<Array> listener_array = Local<Array>::Cast(ret);
-    if (listener_array->Length() == 0) {
-      si()->ReportException(try_catch, true);
-      if (n->m_inTestMode) {
-        n->SetTestStatus(FAILED);
-      }
-      return;
-    }
-  } else {
+  // Report and exit if process has no "uncaughtException" listener
+  Local<Array> listener_array = Local<Array>::Cast(ret);
+  if (listener_array->Length() == 0) {
     si()->ReportException(try_catch, true);
-    if (n->m_inTestMode) {
-      n->SetTestStatus(FAILED);
-    }
     return;
   }
 
@@ -1027,13 +997,14 @@ void NodeStatic::FatalException(TryCatch &try_catch) {
   emit->Call(process, 2, event_argv);
   // Decrement so we know if the next exception is a recursion or not
   uncaught_exception_counter--;
-
-  // proteus: its important we dont exit here
-  // FIXME: check test/simple/test-next-tick-errors.js
 }
 
-void Node::FatalException(TryCatch &try_catch) {
-  si()->FatalException(try_catch);
+void Node::FatalException(TryCatch &try_catch, bool isHost) {
+  if (isHost) {
+    si()->ReportException(try_catch, true);
+  } else {
+    si()->FatalException(try_catch);
+  }
 }
 
 Handle<Value> NodeStatic::CreateExportsObject(const Arguments& args) {
@@ -1141,7 +1112,7 @@ Handle<Value> NodeStatic::RegisterPermissionFeatures(const Arguments& args) {
   Context::Scope cscope(n->m_browserContext);
   NodeEvent e;
   e.type = NODE_EVENT_FP_REGISTER_PRIVILEGED_FEATURES;
-  e.u.RegisterPrivilegedFeaturesEvent_.features = &featureList;
+  //e.u.RegisterPrivilegedFeaturesEvent_.features = &featureList;
   n->client()->HandleNodeEvent(&e);
   return Boolean::New(true);
 }
@@ -1285,19 +1256,19 @@ Handle<Value> NodeStatic::ProcessLog(const Arguments& args) {
   return Undefined();
 }
 
-void NodeStatic::TestTimeoutHandler(uv_timer_t *w, int revents) {
-  NODE_LOGW("%s, timer %p fired",__FUNCTION__, w);
-
-  Node* node_ = static_cast<Node*>(w->data);
-  node_->SetTestStatus(TIMEOUT); // reset test state
-  node_->TestDone();
-}
-
 Handle<Value> NodeStatic::TestSleep(const Arguments &args) {
   HandleScope scope;
   NODE_LOGW("sleep start..");
   sleep(args[0]->Uint32Value());
   NODE_LOGW("sleep end..");
+  return Handle<Value>();
+}
+
+Handle<Value> NodeStatic::TestContext(const Arguments &args) {
+  HandleScope scope;
+  Node *n = GetNodeFromTest(args.Holder());
+  NODE_LOGW("CONTEXT: %s", args[0]->ToObject()->CreationContext() == n->m_context ?
+      "NodeContext" : "UnknownContext");
   return Handle<Value>();
 }
 
@@ -1439,101 +1410,13 @@ Handle<Value> NodeStatic::TestWatcherThread(const Arguments &args) {
   return Handle<Value>();
 }
 
-void Node::TestStart(const char *moduleName, double timeout) {
-  m_inTestMode = true;
-  m_moduleName = moduleName;
-
-  const char *target = si()->s_isAndroid ? (si()->s_isBrowser ? "BROWSER" : "  SHELL") : "DESKTOP";
-  NODE_LOGE("|%s| Test %9s: %s", target, "STARTED", moduleName);
-  SetTestState(STARTED);
-  SetTestStatus(PASSED); // reset test state
-  m_stopWatch.start();
-
-  // Clear any listeners on the process object (EventEmitter.prototype.removeAllListeners)
-  // Fix for, test 1 throws exception, test 2 will also fire its event handler
-  // FIXME: This may impact non-test mode which relies on events fired on previous loadModules
-  Local<Value> removeAllListeners_v = m_process->Get(String::NewSymbol("removeAllListeners"));
-  NODE_ASSERT(removeAllListeners_v->IsFunction());
-  Local<Function> removeAllListeners = Local<Function>::Cast(removeAllListeners_v);
-  Local<Value> argv[] = { };
-  removeAllListeners->Call(m_process, 0, argv);
-
-  NODE_LOGV("starting test timeout watcher %p timeout %f", &m_test_timeout_watcher, timeout);
-  uv_update_time();
-  uv_timer_init(&m_test_timeout_watcher);
-  uv_unref(); // do not count this watcher in the loop
-
-  m_test_timeout_watcher.data = this;
-  if (!uv_is_active((uv_handle_t*)&m_test_timeout_watcher)) {
-    uv_timer_start(&m_test_timeout_watcher, NodeStatic::TestTimeoutHandler, timeout * 1000, 0.);
-  }
-}
-
-Handle<Value> NodeStatic::TestStart(const Arguments& args) {
-  NODE_LOGF();
-
-  HandleScope scope;
-  NODE_ASSERT(args[0]->IsString());
-  String::Utf8Value moduleName(args[0]);
-  Node *n = GetNodeFromTest(args.Holder());
-
-  double timeout = 25.0;
-  if (args.Length() == 2 && args[1]->IsNumber()) {
-    timeout = args[1]->ToNumber()->Value();
-  }
-
-  n->TestStart(*moduleName, timeout);
-  return Undefined();
-}
-
-void Node::TestDone() {
-  NODE_ASSERT(m_inTestMode && m_client);
-  if (m_testState == REPORTED) {
-    NODE_LOGV("TEST: Test already reported ignoring");
-    return;
-  }
-
-  // set state..
-  SetTestState(DONE);
-
-  // report result
-  ReportTestResult();
-
-  // let the client know..
-  m_client->OnTestDone();
-}
-
-Handle<Value> NodeStatic::TestCheck(const Arguments& args) {
-  NODE_LOGF();
-
-  HandleScope scope;
-  int activecnt = ev_activecnt(ev_default_loop());
-  if (activecnt == 1) {
-    NODE_LOGI("%s, no watchers added in loadModule, sending done event", __FUNCTION__);
-    Node *n = GetNodeFromTest(args.Holder());
-    n->TestDone();
-  } else {
-    NODE_LOGV("%s, watchers active after loadModule complete: %d", __FUNCTION__, activecnt);
-  }
-  return Undefined();
-}
-
-Handle<Value> NodeStatic::TestFail(const Arguments& args) {
-  NODE_LOGF();
-  Node *n = GetNodeFromTest(args.Holder());
-  NODE_ASSERT(n->m_inTestMode);
-  n->SetTestStatus(FAILED);
-  n->TestDone();
-  return Undefined();
-}
-
 Handle<Value> NodeStatic::TestPrintJSObject(const Arguments& args) {
 #ifdef V8_DEBUG
   args[0].As<Object>()->Print();
 #else
   NODE_LOGE("printJSObject disabled");
 #endif
-  return Undefined();
+  return Handle<Value>();
 }
 
 Handle<Value> NodeStatic::TestGetAddress(const Arguments& args) {
@@ -1549,17 +1432,14 @@ Handle<Value> NodeStatic::TestGetAddress(const Arguments& args) {
 // test-net-remote-address-port.js
 v8::Handle<v8::Value> NodeStatic::ReallyExit(const v8::Arguments& args) {
   NODE_LOGF();
-  HandleScope scope;
-  Node *n = GetNodeFromProcess(args.Holder());
-  n->SetTestState(DONE);
-  return Undefined();
+  return Handle<Value>();
 }
 
 Handle<Value> NodeStatic::TestBreak(const Arguments& args) {
   NODE_LOGF();
   Node::PrintJSStackTrace(ANDROID_LOG_WARN);
   raise(SIGTRAP);
-  return Undefined();
+  return Handle<Value>();
 }
 
 Handle<Value> NodeStatic::TestRunScript(const Arguments& args) {
@@ -1586,9 +1466,18 @@ Handle<Value> NodeStatic::ExitBrowserContext(const Arguments& args) {
   Node *n = GetNodeFromProcess(args.Holder());
   n->m_browserContext->Exit();
   NODE_ASSERT(Context::GetCurrent() == n->m_context);
-  return Undefined();
+  return Handle<Value>();
 }
 
+Handle<Value> NodeStatic::LoopRef(const Arguments& args) {
+  ev_ref(ev_default_loop());
+  return Handle<Value>();
+}
+
+Handle<Value> NodeStatic::LoopUnref(const Arguments& args) {
+  ev_unref(ev_default_loop());
+  return Handle<Value>();
+}
 
 void Node::SetupProcessObject() {
   NODE_LOGF();
@@ -1614,6 +1503,8 @@ void Node::SetupProcessObject() {
   NODE_SET_METHOD(m_process, "binding", NodeStatic::Binding);
   NODE_SET_METHOD(m_process, "hasBinding", NodeStatic::HasBinding);
   NODE_SET_METHOD(m_process, "log", NodeStatic::ProcessLog);
+  NODE_SET_METHOD(m_process, "ref", NodeStatic::LoopRef);
+  NODE_SET_METHOD(m_process, "unref", NodeStatic::LoopUnref);
 
   // proteus: used to create a new js object that can hold internal fields
   NODE_SET_METHOD(m_process, "createExportsObject", NodeStatic::CreateExportsObject);
@@ -1639,8 +1530,10 @@ void Node::SetupProcessObject() {
   NODE_ASSERT(!si()->s_moduleDownloadPath.empty());
   m_process->Set(String::NewSymbol("appPath"), String::New(si()->s_appPath.c_str()));
   m_process->Set(String::NewSymbol("downloadPath"), String::New(si()->s_moduleDownloadPath.c_str()));
-  m_process->Set(String::NewSymbol("url"), String::New(m_client->url().c_str()));
+  m_process->Set(String::NewSymbol("url"), String::New(m_client->url()));
   m_process->Set(String::NewSymbol("android"), Boolean::New(si()->s_isAndroid));
+  m_process->Set(String::NewSymbol("browser"), Boolean::New(si()->s_isBrowser));
+  m_process->Set(String::NewSymbol("proteusVersion"), String::New(PROTEUS_VERSION));
 
   // set the browser pages global object (window) as process.window
   m_process->Set(String::NewSymbol("window"), m_browserContext->Global());
@@ -1649,14 +1542,13 @@ void Node::SetupProcessObject() {
   NODE_SET_METHOD(m_test, "stack", NodeStatic::TestStack);
   NODE_SET_METHOD(m_test, "watcherStats", NodeStatic::TestWatcherStats);
   NODE_SET_METHOD(m_test, "printJSObject", NodeStatic::TestPrintJSObject);
-  NODE_SET_METHOD(m_test, "getAddress", NodeStatic::TestGetAddress);
-  NODE_SET_METHOD(m_test, "start", NodeStatic::TestStart);
-  NODE_SET_METHOD(m_test, "check", NodeStatic::TestCheck);
-  NODE_SET_METHOD(m_test, "fail", NodeStatic::TestFail);
+  NODE_SET_METHOD(m_test, "address", NodeStatic::TestGetAddress);
   NODE_SET_METHOD(m_test, "break", NodeStatic::TestBreak);
   NODE_SET_METHOD(m_test, "runScript", NodeStatic::TestRunScript);
   NODE_SET_METHOD(m_test, "sleep", NodeStatic::TestSleep);
   NODE_SET_METHOD(m_test, "watcherThread", NodeStatic::TestWatcherThread);
+  NODE_SET_METHOD(m_test, "context", NodeStatic::TestContext);
+  NODE_SET_METHOD(m_test, "exitCode", NodeStatic::TestExitCode);
 
   // proteus: destroys the current node, useful for simulating destroying a page and testing
   // activity cancellation in different modules (e.g. fs should stop all watchers)
@@ -1665,6 +1557,7 @@ void Node::SetupProcessObject() {
   Local<Object> global = m_context->Global();
   global->Set(String::NewSymbol("window"), m_browserContext->Global());
   global->Set(String::NewSymbol("test"), m_test);
+  global->Set(v8::String::New("host"), v8::Boolean::New(false));
 }
 
 void Node::Load() {
@@ -1678,8 +1571,7 @@ void Node::Load() {
   TryCatch try_catch;
   Local<Value> f_value = ExecuteString(MainSource(), IMMUTABLE_STRING("node.js"));
   if (try_catch.HasCaught())  {
-    si()->ReportException(try_catch, true);
-    NODE_LOGE("Test **FAILED: %s", si()->s_nodes[0]->m_moduleName.c_str());
+    ReportException(try_catch, true);
     return;
   }
 
@@ -1695,28 +1587,20 @@ void Node::Load() {
   // Node's I/O bindings may want to replace 'f' with their own function.
 
   // Add a reference to the global object
-  Local<Object> global = m_context->Global();
-  NODE_ASSERT(global->IsObject());
   Local<Value> args[1] = { Local<Value>::New(m_process) };
-
-  Local<Value> loadModuleV = f->Call(global, 1, args);
+  Local<Value> arrayV = f->Call(m_global, 1, args);
   if (try_catch.HasCaught())  {
-    NODE_LOGE("%s: Critical Error, try_catch.HasCaught() == true", __FUNCTION__);
-    si()->ReportException(try_catch, true);
+    ReportException(try_catch, false);
     return;
   }
 
-  // proteus: This should be after the try catch, otherwise we wouldnt catch any compilation errors
-  NODE_ASSERT(loadModuleV->IsFunction());
-  m_loadModule = Persistent<Function>::New(Local<Function>::Cast(loadModuleV));
-
-  Local<Value> loadModuleSyncV = global->Get(String::NewSymbol("loadModuleSync"));
-  m_loadModuleSync = Persistent<Function>::New(Local<Function>::Cast(loadModuleSyncV));
+  Local<Array> array = Local<Array>::Cast(arrayV);
+  m_loadModule = Persistent<Function>::New(Local<Function>::Cast(array->Get(0)));
+  m_require = Persistent<Function>::New(Local<Function>::Cast(array->Get(1)));
 }
 
-v8::Handle<v8::Function> Node::GetLoadModule() {
-  NODE_ASSERT(!m_loadModule.IsEmpty());
-  NODE_ASSERT(m_loadModule->IsFunction());
+Handle<Function> Node::GetLoadModule() {
+  NODE_ASSERT(!m_loadModule.IsEmpty() && m_loadModule->IsFunction());
 
   // error case
   if (m_loadModule.IsEmpty() || !m_loadModule->IsFunction()) {
@@ -1725,10 +1609,14 @@ v8::Handle<v8::Function> Node::GetLoadModule() {
   return m_loadModule;
 }
 
-v8::Handle<v8::Function> Node::GetLoadModuleSync() {
-  NODE_ASSERT(!m_loadModuleSync.IsEmpty());
-  NODE_ASSERT(m_loadModuleSync->IsFunction());
-  return m_loadModuleSync;
+Handle<Function> Node::GetRequire() {
+  NODE_ASSERT(!m_require.IsEmpty() && m_require->IsFunction());
+
+  // error case
+  if (m_require.IsEmpty() || !m_require->IsFunction()) {
+    return Handle<Function>();
+  }
+  return m_require;
 }
 
 // we expose this api so that we can catch errors reported by
@@ -1753,36 +1641,14 @@ Handle<Value> Node::LoadModule(const Arguments& args) {
   return scope.Close(ret);
 }
 
-Handle<Value> Node::LoadModuleSync(const Arguments& args) {
-  NODE_LOGF();
-  NODE_ASSERT(!m_loadModuleSync.IsEmpty());
-  NODE_ASSERT(m_loadModuleSync->IsFunction());
-
-  // enter the node context
-  HandleScope scope;
-  Context::Scope cscope(m_context);
-
-  TryCatch try_catch;
-  Handle<Object> holder = args.Holder()->ToObject();
-  Local<Value> args_[] = { args[0] };
-  Local<Value> ret = m_loadModuleSync->Call(holder, 1, args_);
-  if (try_catch.HasCaught()) {
-    si()->FatalException(try_catch);
-    return Undefined();
-  }
-  return scope.Close(ret);
-}
-
-static struct sigaction old_sa[NSIG];
+struct sigaction old_sa[NSIG];
 static int RegisterSignalHandler(int signal, void (*handler)(int)) {
   struct sigaction sa;
-
   memset(&sa, 0, sizeof(sa));
   sa.sa_handler = handler;
   sigfillset(&sa.sa_mask);
   return sigaction(signal, &sa, &old_sa[signal]);
 }
-
 
 // Bootup node
 void NodeStatic::Initialize() {
@@ -1794,6 +1660,12 @@ void NodeStatic::Initialize() {
   RegisterSignalHandler(SIGPIPE, SIG_IGN);
   RegisterSignalHandler(SIGTRAP, SIG_IGN);
   ReadDebugLevel();
+
+  // start the memleak watcher on demand..
+  if (s_memLeak) {
+    NODE_LOGE("** Starting MemLeakTracker");
+    MemLeakTracker::start();
+  }
 
   // FIXME: do we need to initialize v8 in the case of browser,
   // should be harmless anyways
@@ -1826,25 +1698,25 @@ void NodeStatic::Initialize() {
 }
 
 void NodeStatic::Lock_(LockContext context) {
-  NODE_LOGV("NODE_LOCK: %s, %s thread lock L1",
+  NODE_LOGM("NODE_LOCK: %s, %s thread lock L1",
       IsMainThread() ? "Main" : "EV", LockContextStr[context]);
   pthread_mutex_lock(&s_mutex);
 }
 
 void NodeStatic::UnLock_(LockContext context) {
   pthread_mutex_unlock(&s_mutex);
-  NODE_LOGV("NODE_LOCK: %s, %s thread unlock L1",
+  NODE_LOGM("NODE_LOCK: %s, %s thread unlock L1",
       IsMainThread() ? "Main" : "EV", LockContextStr[context]);
 }
 
 void NodeStatic::Wait_() {
-  NODE_LOGV("NODE_LOCK: %s, EV_PENDING thread wait C1", IsMainThread() ? "Main" : "EV");
+  NODE_LOGM("NODE_LOCK: %s, EV_PENDING thread wait C1", IsMainThread() ? "Main" : "EV");
   pthread_cond_wait(&s_cond, &s_mutex);
-  NODE_LOGV("NODE_LOCK: %s, EV_PENDING thread got C1", IsMainThread() ? "Main" : "EV");
+  NODE_LOGM("NODE_LOCK: %s, EV_PENDING thread got C1", IsMainThread() ? "Main" : "EV");
 }
 
 void NodeStatic::Signal_() {
-  NODE_LOGV("NODE_LOCK: %s, EV_PENDING thread signal C1", IsMainThread() ? "Main" : "EV");
+  NODE_LOGM("NODE_LOCK: %s, EV_PENDING thread signal C1", IsMainThread() ? "Main" : "EV");
   pthread_cond_signal(&s_cond);
 }
 
@@ -1857,7 +1729,7 @@ extern "C" void unlock() {
 }
 
 extern "C" void wakeup() {
-  NODE_LOGV("HANDSHAKE: wakeup event send to ev thread");
+  NODE_LOGM("NODE_LOCK: wakeup event send to ev thread");
   uv_async_send(&si()->s_ev_async_watcher);
 }
 
@@ -1891,10 +1763,10 @@ void Node::Init() {
 }
 
 void Node::EmitEvent(const char* event) {
-  // caller may not have a handle scope
-  // ./node test/simple/test-fs-read.js test/simple/test-fs-write.js
   HandleScope scope;
-  NODE_LOGV("%s, event(%s)", __FUNCTION__, event);
+  Context::Scope cscope(m_context);
+
+  NODE_LOGV("EmitEvent, event(%s)", event);
   Local<Value> emit_v = m_process->Get(String::New("emit"));
   NODE_ASSERT(emit_v->IsFunction());
   Local<Function> emit = Local<Function>::Cast(emit_v);
@@ -1902,20 +1774,17 @@ void Node::EmitEvent(const char* event) {
   TryCatch try_catch;
   emit->Call(m_process, 1, args);
   if (try_catch.HasCaught()) {
-    si()->ReportException(try_catch, true);
-    if (m_inTestMode) {
-      SetTestStatus(FAILED);
-    }
+    ReportException(try_catch, true);
   }
 }
 
-void Node::Initialize(void (*cb)(), bool isBrowser, std::string moduleRootPath) {
+void Node::Initialize(void (*cb)(), bool isBrowser, const char* moduleRootPath, struct ev_loop* hostLoop) {
   NODE_LOGF();
 
   static bool initialized = false;
   NODE_ASSERT(!initialized);
   if (!initialized) {
-    NodeStatic::create(cb, isBrowser, moduleRootPath);
+    NodeStatic::create(cb, isBrowser, moduleRootPath, hostLoop);
   }
   initialized = true;
 }
@@ -1928,13 +1797,18 @@ bool Node::IsMainThread() {
   return si()->IsMainThread();
 }
 
+struct ev_loop* Node::HostLoop() {
+  NODE_ASSERT(si()->s_hostLoop);
+  return si()->s_hostLoop;
+}
+
+int Node::ExitCode() {
+  return si()->s_exitCode;
+}
+
 // node statics..
 Node::Node(NodeClient *client)
-  : m_testStatus(PASSED)
-  , m_testState(INIT)
-  , m_moduleName("<unknown>")
-  , m_inTestMode(false)
-  , m_need_tick_cb(false)
+  : m_need_tick_cb(false)
   , m_client(client)
 {
   NODE_ASSERT(si());
@@ -1952,12 +1826,19 @@ Node::Node(NodeClient *client)
 
   // node modules run in a separate v8 context different from browser context
   HandleScope scope;
-  m_context = Context::New();
 
-  // enter the node context
+  Handle<ObjectTemplate> globalTemplate = ObjectTemplate::New();
+  globalTemplate->SetInternalFieldCount(1);
+  m_context = Context::New(0, globalTemplate);
+
+  // Enter node context
   Context::Scope cscope(m_context);
   m_global = Persistent<Object>::New(m_context->Global());
   m_context->SetSecurityToken(m_browserContext->GetSecurityToken());
+
+  Local<Object> prototype = m_global->GetPrototype()->ToObject();
+  NODE_ASSERT(prototype->InternalFieldCount() == 1);
+  prototype->SetPointerInInternalField(0, this);
 
   // initialize watchers
   memset(&m_watchers_active, 0, sizeof(m_watchers_active));
@@ -1967,17 +1848,10 @@ Node::Node(NodeClient *client)
 
   Load();
   NODE_LOGD("%s, node::Load() complete", __FUNCTION__);
-
-  // reset the stopwatch
-  m_stopWatch.start();
 }
 
 Node::~Node(){
   NODE_LOGD("NODE_API: ~Node (%p)", this);
-
-  // This could be called by NodeProxy, switch to node context..
-  HandleScope scope;
-  Context::Scope cscope(m_context);
 
   // send event on process object, this can be used by the modules/module objects
   // to clean up (e.g. camera object could disconnect, file module could clean up watchers etc)
@@ -1993,12 +1867,12 @@ Node::~Node(){
       Lock * temp = *it;
       NODE_LOGV("%s, Check Lock : %p, node : %p)", __FUNCTION__, temp, temp->s_node );
       if (temp->s_node == this) {
-	NODE_LOGV("%s, releasing function Lock : %p, node : %p)", __FUNCTION__, temp, temp->s_node );
-	it = si()->s_lockList.erase(it);
-	delete temp;
+        NODE_LOGV("%s, releasing function Lock : %p, node : %p)", __FUNCTION__, temp, temp->s_node );
+        it = si()->s_lockList.erase(it);
+        delete temp;
       }
       else{
-	it++;
+        it++;
       }
     }
   }
@@ -2010,8 +1884,8 @@ Node::~Node(){
   m_browserContext.MakeWeak((void*) "browserContext", WeakCallback);
   m_process.MakeWeak((void*) "process", WeakCallback);
   m_test.MakeWeak((void*) "test", WeakCallback);
-  m_loadModule.Dispose();
-  m_loadModuleSync.Dispose();
+  m_loadModule.MakeWeak((void*) "loadModule", WeakCallback);
+  m_require.MakeWeak((void*) "require", WeakCallback);
 
   struct rusage usage;
   getrusage(RUSAGE_SELF,&usage);
@@ -2094,9 +1968,9 @@ void NodeStatic::RunEventLoop() {
 
 void NodeStatic::InvokePending() {
   si()->Lock_(LOCK_EV_PENDING);
-  NODE_LOGV("HANDSHAKE: ev_invoke_pending() start");
+  NODE_LOGV("ev_invoke_pending() start");
   ev_invoke_pending(ev_default_loop());
-  NODE_LOGV("HANDSHAKE: ev_invoke_pending() done, signal ev thread");
+  NODE_LOGV("ev_invoke_pending() done, signal ev thread");
   si()->Signal_();
   si()->UnLock_(LOCK_EV_PENDING);
 }
@@ -2104,46 +1978,75 @@ void NodeStatic::InvokePending() {
 void Node::InvokePending() {
   si()->InvokePending();
 
-  NODE_LOGV("WATCHERS: InvokePending: active(%d)", ev_activecnt(ev_default_loop()));
-  if (ev_activecnt(ev_default_loop()) == 1) { // 1 since we have a async watcher always active
-    if (si()->s_nodes.size() > 0) {
-      si()->MarkAllTestsDone();
-      NODE_LOGV("HANDSHAKE: InvokePending");
-    } else {
-      NODE_LOGW("%s, events pending with ev thread with no active node instance", __FUNCTION__);
+  // send idle events to all active nodes if we are not active
+  // host environment handles this case, so this is specific to browser
+  if (si()->s_isBrowser && ev_activecnt(ev_default_loop()) <= 1) {
+    vector<Node* >::iterator it = si()->s_nodes.begin();
+    for (;it != si()->s_nodes.end(); it++) {
+      (*it)->EmitEvent("idle");
     }
   }
 }
 
 #ifndef ANDROID
-void Node::PrintNativeStackTrace(android_LogPriority pri) {
-  void *buffer[50];
-  int nptrs = backtrace(buffer, 50);
-  char **strings = backtrace_symbols(buffer, nptrs);
-  if (!strings) {
-    NODE_ASSERT_REACHABLE();
-    return;
-  }
-
-  __android_log_print_wrap(pri, LOG_TAG_NODE, "=== <native trace>");
-  for (int i = 0; i < nptrs; i++) {
-    __android_log_print_wrap(pri, LOG_TAG_NODE, "#%02d %s", i, strings[i]);
-  }
-  __android_log_print_wrap(pri, LOG_TAG_NODE, "===");
-  free(strings);
-}
-
-std::string NodeStatic::AddressToString(void *addr) {
+std::string Node::AddressToString(void *addr) {
   void *buffer[1] = { addr };
   char **strings = backtrace_symbols(buffer, 1);
   if (!strings) {
     return "";
   }
+
   std::string symbol = strings[0];
   free(strings);
+
+  // demangle..
+  char *mangled = strdup(symbol.c_str());
+  MEM_LEAK_LOGD("symbol %s", mangled);
+  char *begin = 0, *offset = 0, *end = 0;
+  char *p = mangled ;
+  while (*p) {
+    if (*p == '(') {
+      begin = p;
+    } else if (*p == '+') {
+      offset = p;
+    } else if (*p == ')' && offset) {
+      end = p;
+    }
+    p++;
+  }
+
+  if (begin && offset && end && begin + 1 < offset) {
+    // +1 is for case where content before + is empty as in
+    // /usr/lib32/libcrypto.so.0.9.8(+0x3e28e)
+    // libc..(__libc_malloc+0x1d8fc) ..
+    //       ^begin        ^ ofset ^ end
+    *begin++ = 0;
+    *offset++ = 0;
+    *end = 0;
+
+    int status;
+    char *demangled = abi::__cxa_demangle(begin, 0, 0, &status);
+    if (status) {
+      MEM_LEAK_LOGD("demangled failed for %s", begin);
+    }
+
+    symbol = demangled ? demangled : begin + string("+") + offset;
+    free(mangled);
+    free(demangled);
+  }
+
   return symbol;
 }
 
+void Node::PrintNativeStackTrace(android_LogPriority pri) {
+  void *buffer[50];
+  int nptrs = backtrace(buffer, 50);
+  __android_log_print_wrap(pri, LOG_TAG_NODE, "=== <native trace>");
+  for (int i = 0; i < nptrs; i++) {
+    __android_log_print_wrap(pri, LOG_TAG_NODE, "#%02d %s", i, AddressToString(buffer[i]).c_str());
+  }
+  __android_log_print_wrap(pri, LOG_TAG_NODE, "===");
+}
 #endif
 
 extern "C" void on_ev_start(ev_watcher *w) {
@@ -2214,8 +2117,18 @@ void* NodeStatic::EvThreadRun(void *unused) {
     // start the libev loop
     ev_run(ev_default_loop(), 0);
 
-    NODE_LOGI("libev thread/loop ended, watchers: %d", ev_activecnt(ev_default_loop()));
-    NODE_ASSERT_REACHABLE(); // we should never exit the loop in current scheme..
+    NODE_LOGW("libev thread/loop ended, watchers: %d", ev_activecnt(ev_default_loop()));
+    // NODE_ASSERT_REACHABLE(); // we should never exit the loop in current scheme..
+
+    // if the refcount goes below 1, the event loop will
+    // return and we will keep spinning, get it back to 1
+    int activecnt = ev_activecnt(ev_default_loop());
+    if (activecnt < 1) {
+      while (activecnt++ < 1) {
+        ev_ref(ev_default_loop());
+      }
+      NODE_ASSERT(ev_activecnt(ev_default_loop()) == 1);
+    }
   }
 
   si()->UnLock_(LOCK_EV_START);
@@ -2234,17 +2147,16 @@ void NodeStatic::EvThreadPendingCallback(struct ev_loop *loop){
 }
 
 void NodeStatic::HandleSIGSEGV(int signal) {
-  if (si() && si()->s_nodes.size() > 0) {
-    NODE_LOGE("Test **CRASHED: %s", si()->s_nodes[0]->m_moduleName.c_str());
-  } else {
-    NODE_LOGE("Test **CRASHED: <unknown>");
-  }
+  NODE_LOGE("Node **CRASHED at");
+#ifndef ANDROID
+  Node::PrintNativeStackTrace();
+#endif
 
   if (old_sa[signal].sa_handler) {
     old_sa[signal].sa_handler(signal);
   }
 
-  exit(0);
+  exit(1);
 }
 
 void NodeStatic::DumpWatcherStats(uv_counters_t *uvc){
@@ -2267,80 +2179,9 @@ void NodeStatic::DumpActiveWatchers() {
     NODE_LOGD("WATCHERS: Active %p, %p", (*it).first, (*it).first->cb);
 #else
     NODE_LOGV("WATCHERS: Active %p, %s", (*it).first,
-        si()->AddressToString((void*)(*it).first->cb).c_str());
+        Node::AddressToString((void*)(*it).first->cb).c_str());
 #endif
   }
-}
-
-// should match TestStatus
-const char* TestString[] = {"**FAILED","PASSED", "**CRASHED", "**TIMEOUT"};
-
-void Node::ReportTestResult() {
-  NODE_ASSERT(m_inTestMode);
-
-  if (m_testState == REPORTED) {
-    NODE_LOGW("%s, Test %s already reported returning", __FUNCTION__, m_moduleName.c_str());
-    return;
-  }
-
-  // ensure we are in the right context
-  HandleScope scope;
-  Context::Scope cscope(m_context);
-
-  // if the test has not failed, emit exit so that process.exit
-  // gets executed and it can NODE_ASSERT output, so the test can still
-  // fail after this call
-  if (m_testStatus == PASSED) {
-    EmitEvent("exit");
-  }
-
-  const char *target = si()->s_isAndroid ? (si()->s_isBrowser ? "BROWSER" : "  SHELL") : "DESKTOP";
-  NODE_LOGE("|%s| Test %9s: %s (%d)", target,
-      TestString[m_testStatus], m_moduleName.c_str(), m_stopWatch.time());
-
-  // update status
-  SetTestState(REPORTED);
-
-  // stop the timer
-  if (uv_is_active((uv_handle_t*)&m_test_timeout_watcher)) {
-    NODE_LOGV("stopping test timeout watcher %p", &m_test_timeout_watcher);
-    uv_timer_stop(&m_test_timeout_watcher);
-  }
-
-#if LOG_WATCHERS
-  si()->DumpActiveWatchers();
-#endif
-}
-
-// FIXME: called on ev thread, not thread safe..
-void NodeStatic::MarkAllTestsDone() {
-  NODE_LOGF();
-  vector<Node* >::iterator it = si()->s_nodes.begin();
-  for (;it != si()->s_nodes.end(); it++) {
-    if ((*it)->m_testState == STARTED) {
-      (*it)->m_testState = DONE;
-    }
-  }
-}
-
-// public api
-bool Node::CheckTestStatus() {
-  NODE_LOGV("%s, s_nodes(%d)", __FUNCTION__, si()->s_nodes.size());
-
-  // return if all the active nodes are done
-  bool allNodesDone = true;
-  vector<Node* >::iterator it = si()->s_nodes.begin();
-  for (;it != si()->s_nodes.end(); it++) {
-    if ((*it)->m_testState == DONE) {
-      Context::Scope cscope((*it)->m_context);
-      (*it)->ReportTestResult();
-    } else {
-      NODE_LOGV("%s, node (%p) with test (%s) still active", __FUNCTION__,
-          *it, (*it)->m_moduleName.c_str());
-      allNodesDone = false;
-    }
-  }
-  return allNodesDone;
 }
 
 Handle<Value> NodeStatic::TestStack(const Arguments& args) {
@@ -2349,29 +2190,17 @@ Handle<Value> NodeStatic::TestStack(const Arguments& args) {
   return Undefined();
 }
 
+Handle<Value> NodeStatic::TestExitCode(const Arguments& args) {
+  si()->s_exitCode = args[0]->NumberValue();
+  return Handle<Value>();
+}
+
 Handle<Value> NodeStatic::TestWatcherStats(const Arguments& args) {
   NODE_LOGD("%s, all watchers (active/inactive)", __FUNCTION__);
   si()->DumpWatcherStats(uv_counters());
   NODE_LOGD("%s, all active watchers ", __FUNCTION__);
   si()->DumpWatcherStats(&si()->s_watchers_active);
   return Undefined();
-}
-
-Handle<Object> NodeStatic::TestGetCurrentProcess() {
-  // use parent handle scope
-  NODE_ASSERT(Context::InContext());
-  Local<Value> process_v =
-    Context::GetCurrent()->Global()->Get(String::NewSymbol("process"));
-
-  // FIXME: we need to find a way to get the process from the TryCatch
-  // for now we use the first process object from the static node list
-  if (process_v->IsUndefined()) {
-    if (s_nodes.size() == 0 || s_nodes[0]->m_process.IsEmpty()) {
-      return Local<Object>();
-    }
-    return s_nodes[0]->m_process;
-  }
-  return Local<Object>::Cast(process_v);
 }
 
 //FIXME: by default we log up to info, to be revisited
@@ -2392,8 +2221,6 @@ android_LogPriority NodeStatic::StringToLog(const char* log) {
 }
 
 void NodeStatic::ReadDebugLevel() {
-  NODE_LOGE("%s", __FUNCTION__);
-
   bool reportCrash = false;
 #ifdef ANDROID
   if (__system_property_find("NODE_CRASH")) {
@@ -2413,18 +2240,42 @@ void NodeStatic::ReadDebugLevel() {
   if (__system_property_get("NODE_DEBUG" , log)) {
     s_debugLevel = StringToLog(log);
   }
+  if (__system_property_get("MEM_LEAK", log)) {
+    s_memLeak = true;
+  }
 #else
   const char *log;
   if (log = getenv("NODE_DEBUG")) {
     s_debugLevel = StringToLog(log);
   }
+  if (getenv("MEM_LEAK")) {
+    s_memLeak = true;
+  }
 #endif
-  NODE_LOGE("%s, setting node debug level (%s:%d)",__FUNCTION__,
-      LOG_STRING[s_debugLevel], s_debugLevel);
+  NODE_LOGI("%s, setting node debug level (%s:%d), memleak(%s)",__FUNCTION__,
+      LOG_STRING[s_debugLevel], s_debugLevel, s_memLeak ? "ENABLED" : "DISABLED");
+}
+
+void printToStdout(android_LogPriority prio, const char *tag, const char* buf) {
+  if (si()) {
+    if (!si()->s_logWatch.started()) {
+      si()->s_logWatch.start();
+    }
+    static bool prevThread;
+    if (prevThread != si()->IsMainThread()) {
+      printf("==\n");
+    }
+    printf("%c %.3f %c/%s: %s\n", si()->IsMainThread() ? 'M' : 'E',
+        si()->s_logWatch.time() / 1000.0, LOG_STRING[prio][0], tag, buf);
+    prevThread = si()->IsMainThread();
+  } else {
+    printf("%.3f %c/%s: %s\n", 100.05, LOG_STRING[prio][0], tag, buf);
+  }
+  fflush(stdout);
 }
 
 // node follows android logging mechanism and will be controllable at build/runtime
-#define LOG_BUF_SIZE 1024
+#define LOG_BUF_SIZE 2048
 extern "C" void __android_log_print_wrap(android_LogPriority prio, const char *tag, const char *fmt, ...) {
   if (si()) {
     pthread_mutex_lock(&si()->s_log_mutex);
@@ -2439,22 +2290,11 @@ extern "C" void __android_log_print_wrap(android_LogPriority prio, const char *t
   if (s_debugLevel <= prio) {
 #ifdef ANDROID
     __android_log_print(prio, tag, buf);
-#else
-    if (si()) {
-      if (!si()->s_logWatch.started()) {
-        si()->s_logWatch.start();
-      }
-      static bool prevThread;
-      if (prevThread != si()->IsMainThread()) {
-        printf("==\n");
-      }
-      printf("%c %.3f %c/%s: %s\n", si()->IsMainThread() ? 'M' : 'E',
-          si()->s_logWatch.time() / 1000.0, LOG_STRING[prio][0], tag, buf);
-      prevThread = si()->IsMainThread();
-    } else {
-      printf("%.3f %c/%s: %s\n", 100.05, LOG_STRING[prio][0], tag, buf);
+    if (si() && !si()->s_isBrowser) {
+      printToStdout(prio, tag, buf);
     }
-    fflush(stdout);
+#else
+    printToStdout(prio, tag, buf);
 #endif
   }
 
@@ -2503,11 +2343,14 @@ void NodeStatic::EvAsyncCallback(uv_async_t *w, int revents) {
   NODE_LOGF();
 }
 
-NodeStatic::NodeStatic(void (*clientCallback)(), bool isBrowser, std::string appPath)
+NodeStatic::NodeStatic(void (*clientCallback)(), bool isBrowser, const char* appPath, struct ev_loop *hostLoop)
   : s_isBrowser(isBrowser)
   , s_isAndroid(false)
   , s_serviceNode(0)
   , s_clientCallback(clientCallback)
+  , s_memLeak(false)
+  , s_hostLoop(hostLoop)
+  , s_exitCode(0)
 {
   s_instance = this;
 
@@ -2529,7 +2372,10 @@ NodeStatic::NodeStatic(void (*clientCallback)(), bool isBrowser, std::string app
   // node modules will be downloaded to/loaded from <app_path>/.proteus/downloads directory
 #ifdef ANDROID
   s_isAndroid = true;
-  s_moduleDownloadSuffix = ".proteus/downloads";
+
+  if (s_isBrowser) {
+    s_moduleDownloadSuffix = ".dapi/downloads";
+  }
 #endif
 
   s_appPath = appPath;

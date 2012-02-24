@@ -9,8 +9,8 @@ var testNumber = 0;
 var curTest ;
 var curTestIndex = 0;
 
-var TEST_PATH='/data/data/com.android.browser/.proteus/downloads/';
-var UNZIP_LOC='/data/data/com.android.browser/.proteus/downloads/unzip-test/';
+var TEST_PATH='/data/data/com.android.browser/.dapi/downloads/';
+var UNZIP_LOC='/data/data/com.android.browser/.dapi/downloads/unzip-test/';
 
 //-------------------------------------------Tests Loop up---------------------------------------------------------------------------------
 
@@ -32,16 +32,16 @@ function testInfo (func, shortName, type, level, description ,expectedResult) {
 }
 
 var testList = [
-    new testInfo(testValidZipFile, 'Test_Valid_ZipFile', 'L1', 'AUTO',"This is to test passing a valid zip file to unzip","The zip file should be successfully decompressed and the result should be true"),
-    new testInfo(testValidZipBuffer, 'Test_Valid_Zip_Buffer','L1','AUTO', "This is to test passing a valid zip buffer to unzip","The zip buffer should be successfully decompressed and the result should be true"),
-    new testInfo(testCorruptedZipFile, 'Test_Corrupted_Zip_File','L1','AUTO', "This is to test passing a corrupted zip file to unzip","The zip file should be not be decompressed and the result should be false"),
-    new testInfo(testCorruptedZipBuffer, 'Test_Corrupted_Zip_Buffer','L1', 'AUTO',"This is to test passing a corrupted zip buffer to unzip","The zip buffer should  not be decompressed and the result should be false"),
-    new testInfo(testInvalidZipFilePath, 'Test_Invalid_Zip_File_Path','L1', 'AUTO',"This is to test passing a Invalid Zip file Path to unzip","The zip file should  not be decompressed and the result should be false "),
-    new testInfo(testInvalidDestinationWithBuffer, 'Test_Invalid_Destiantion_with_buffer','L1', 'AUTO',"This is to test passing Invalid Destiantion to unzip","The zip buffer should  not be decompressed and the result should be false"),
-    new testInfo(testInvalidDestinationWithFile, 'Test_Invalid_Destiantion_with_File','L1','AUTO', "This is to test passing Invalid Destiantion to unzip","The zip file should  not be decompressed and the result should be false"),
-    new testInfo(testExistingContentsWithFile, 'Test_Existing_Contents_with_File','L1', 'AUTO',"This is to test passing File which is already  unziped in location","The zip file should  decompressed after deleting existing contents and the result should be true"),
-    new testInfo(testExistingContentsWithBuffer, 'Test_Existing_Contents_with_Buffer','L1','AUTO', "This is to test passing buffer which is already  unziped in location","The zip buffer should  decompressed after deleting existing contents and the result should be true")
-];
+		new testInfo(testValidZipFile, 'Test_Valid_ZipFile', 'L1', 'AUTO',"This is to test passing a valid zip file to unzip","The zip file should be successfully decompressed and the result should be true"),
+		new testInfo(testValidZipBuffer, 'Test_Valid_Zip_Buffer','L1','AUTO', "This is to test passing a valid zip buffer to unzip","The zip buffer should be successfully decompressed and the result should be true"),
+		new testInfo(testCorruptedZipFile, 'Test_Corrupted_Zip_File','L1','AUTO', "This is to test passing a corrupted zip file to unzip","The zip file should be not be decompressed and the result should be false"),
+		new testInfo(testCorruptedZipBuffer, 'Test_Corrupted_Zip_Buffer','L1', 'AUTO',"This is to test passing a corrupted zip buffer to unzip","The zip buffer should  not be decompressed and the result should be false"),
+		new testInfo(testInvalidZipFilePath, 'Test_Invalid_Zip_File_Path','L1', 'AUTO',"This is to test passing a Invalid Zip file Path to unzip","The zip file should  not be decompressed and the result should be false "),
+		new testInfo(testInvalidDestinationWithBuffer, 'Test_Invalid_Destiantion_with_buffer','L1', 'AUTO',"This is to test passing Invalid Destiantion to unzip","The zip buffer should  not be decompressed and the result should be false"),
+		new testInfo(testInvalidDestinationWithFile, 'Test_Invalid_Destiantion_with_File','L1','AUTO', "This is to test passing Invalid Destiantion to unzip","The zip file should  not be decompressed and the result should be false"),
+		new testInfo(testExistingContentsWithFile, 'Test_Existing_Contents_with_File','L1', 'AUTO',"This is to test passing File which is already  unziped in location","The zip file should  decompressed after deleting existing contents and the result should be true"),
+		new testInfo(testExistingContentsWithBuffer, 'Test_Existing_Contents_with_Buffer','L1','AUTO', "This is to test passing buffer which is already  unziped in location","The zip buffer should  decompressed after deleting existing contents and the result should be true")
+	       ];
 
 //-------------------------------------------Tests Loop up---------------------------------------------------------------------------------
 
@@ -252,7 +252,7 @@ function testExistingContentsWithFile(callback){
       // check if one file from zip is created.
       if (path.existsSync(UNZIP_LOC+'1/2/3/3')){
 	console.log('testExistingContentsWithFile test result : ' + 'PASS');
-        curTest.result = "PASS";
+	curTest.result = "PASS";
       }
     }
   }
@@ -308,14 +308,14 @@ function testExistingContentsWithBuffer(callback){
 
       if (result){
 
-        console.log('in  result');
+	console.log('in  result');
 
-        // check if one file from zip is created.
-        if (path.existsSync(UNZIP_LOC+'1/2/3/3')){
+	// check if one file from zip is created.
+	if (path.existsSync(UNZIP_LOC+'1/2/3/3')){
 
-          curTest.result = "PASS";
-          console.log('testExistingContentsWithBuffer test result : ' + 'PASS');
-        }
+	  curTest.result = "PASS";
+	  console.log('testExistingContentsWithBuffer test result : ' + 'PASS');
+	}
       }
 
     }

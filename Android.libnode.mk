@@ -33,10 +33,13 @@ LOCAL_JS_FILES += \
 LOCAL_JS_FILES += \
         $(LOCAL_PATH)/modules/proteus/proteusSecureProxy/lib/secureproxy.js
 
-
 # Add sqlite js as builtin
 LOCAL_JS_FILES += \
         external/node/modules/sqlite-sync/sqlite.js
+
+# webapp
+LOCAL_JS_FILES += \
+        $(LOCAL_PATH)/modules/proteus/webapp/webapp.js
 
 GEN_NODE := $(intermediates)/node_natives.h
 $(GEN_NODE): SCRIPT := $(intermediates)/js2c.py
@@ -93,6 +96,7 @@ LOCAL_CFLAGS += \
 
 LOCAL_C_INCLUDES += \
    bionic \
+   external/connectivity/stlport/stlport \
    bionic/libc/include \
    bionic/libc/include/sys \
    external/openssl/include \
@@ -104,12 +108,11 @@ LOCAL_C_INCLUDES += \
    $(LOCAL_PATH)/src \
    $(LOCAL_PATH)/generated \
    $(LOCAL_PATH)/prebuilt \
-   external/stlport/stlport \
    bionic/libstdc++/include
 
 
 LOCAL_STATIC_LIBRARIES := libcares
-LOCAL_SHARED_LIBRARIES := libcutils libdl libssl libcrypto libstlport
+LOCAL_SHARED_LIBRARIES := libcutils libdl libssl libcrypto libzipfile
 
 # dynamic linkage to v8
 ifeq ($(DYNAMIC_SHARED_LIBV8SO),true)
@@ -144,15 +147,22 @@ LOCAL_SRC_FILES += \
 LOCAL_C_INCLUDES += \
   $(LOCAL_PATH)/modules/proteus/proteusUnzip/src/
 
-LOCAL_STATIC_LIBRARIES += \
-  libzipfile \
-  libunz
-
 # add deviceInfo
 LOCAL_SRC_FILES += \
   modules/proteus/proteusDeviceInfo/src/node_deviceinfo.cc
 
 LOCAL_STATIC_LIBRARIES += \
   libcutils \
+
+# memleak
+LOCAL_SRC_FILES += \
+  memleak/memleak.cc
+
+LOCAL_CFLAGS += \
+  -D_REENTRANT
+
+LOCAL_C_INCLUDES += \
+  $(LOCAL_PATH)/memleak \
+  bionic/libc/bionic
 
 include $(BUILD_SHARED_LIBRARY)

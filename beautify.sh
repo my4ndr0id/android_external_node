@@ -15,18 +15,18 @@ help() {
 for i in $*
 do
    case $i in
-       -d=*|--dir=*)
-           DIR=`echo $i | sed 's/[-a-zA-Z0-9]*=//'`
-           ;;
-       -b=*|--jsbeautifier=*)
-           JSBEAUTIFY=`echo $i | sed 's/[-a-zA-Z0-9]*=//'`
-           ;;
-       -h|--help)
-           help
-           ;;
-       *)
-           OPTIONS="$OPTIONS $i"
-           ;;
+        -d=*|--dir=*)
+		DIR=`echo $i | sed 's/[-a-zA-Z0-9]*=//'`
+		;;
+        -b=*|--jsbeautifier=*)
+		JSBEAUTIFY=`echo $i | sed 's/[-a-zA-Z0-9]*=//'`
+		;;
+         -h|--help)
+                help
+		;;
+         *)
+                OPTIONS="$OPTIONS $i"
+                ;;
    esac
 done
 

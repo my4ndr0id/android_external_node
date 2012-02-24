@@ -31,18 +31,18 @@
 var deviceInfoBindings = process.binding('deviceinfo');
 
 var deviceInfoPropertyList = {
-    "ro.product.manufacturer": "manu",
-    "ro.product.device": "pdev",
-    "ro.product.model": "mdl",
-    "ro.product.name": "pname",
+    "ro.product.manufacturer": "manufacturer",
+    "ro.product.device": "device",
+    "ro.product.model": "model",
+    "ro.product.name": "name",
     "ro.hardware": "hwd",
-    "ro.build.display.id": "bld",
-    "ro.carrier": "cr",
+    "ro.build.display.id": "build",
+    "ro.carrier": "carrier",
     "ro.product.locale.language": "lang",
-    "ro.product.locale.region": "reg",
-    "ro.product.board": "pbrd",
-    "ro.product.brand": "pbnd",
-    "ro.board.platform": "brdplat"
+    "ro.product.locale.region": "region",
+    "ro.product.board": "board",
+    "ro.product.brand": "brand",
+    "ro.board.platform": "platform"
 };
 
 var environmentPropertyList = {
@@ -58,14 +58,14 @@ var environmentPropertyList = {
 };
 
 exports.getSystemProperty = function (propertyName) {
-    var deviceInfoObj = new deviceInfoBindings.createDeviceInfo(process);
+    var deviceInfoObj = new deviceInfoBindings.createDeviceInfo(process, process.downloadPath);
     var value = deviceInfoObj.getSystemProp(propertyName);
     return value;
 };
 
 exports.getEnvironmentProperty = function (propertyName, isPrivate) {
     if (environmentPropertyList[propertyName]) {
-        var deviceInfoObj = new deviceInfoBindings.createDeviceInfo(process);
+        var deviceInfoObj = new deviceInfoBindings.createDeviceInfo(process, process.downloadPath);
         var value = deviceInfoObj.getEnvironmentProp(environmentPropertyList[propertyName]);
         return value;
     } else {
@@ -76,13 +76,15 @@ exports.getEnvironmentProperty = function (propertyName, isPrivate) {
 exports.getDeviceInfo = function () {
     var deviceInfo = {};
     for (var i in deviceInfoPropertyList) {
-        var deviceInfoObj = new deviceInfoBindings.createDeviceInfo(process);
+        var deviceInfoObj = new deviceInfoBindings.createDeviceInfo(process, process.downloadPath);
         var value = deviceInfoObj.getSystemProp(i);
         if (!value) {
             value = '';
         }
         deviceInfo[deviceInfoPropertyList[i]] = value;
     }
+    // add the proteus Version
+    deviceInfo["proteusVersion"] = process.proteusVersion;
     console.info("getDeviceInfo -> " + JSON.stringify(deviceInfo));
     return deviceInfo;
 };

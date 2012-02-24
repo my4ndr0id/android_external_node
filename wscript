@@ -203,13 +203,6 @@ def set_options(opt):
                 , dest='dest_cpu'
                 )
 
-  opt.add_option( '--libzipfile-path'
-                , action='store'
-                , default=None
-                , help='lizipfile directory, should contain .a, zipfile.h'
-                , dest='libzipfile_path'
-                )
-
 def configure(conf):
   conf.check_tool('compiler_cxx')
   if not conf.env.CXX: conf.fatal('c++ compiler not found')
@@ -406,13 +399,6 @@ def configure(conf):
                             libpath=v8_libpath):
         conf.fatal("Cannot find v8_g")
 
-
-  if not conf.check_cxx(lib='zipfile', header_name='zipfile/zipfile.h',
-                          uselib_store='ZIPFILE',
-                          includes=o.libzipfile_path,
-                          libpath=o.libzipfile_path):
-      conf.fatal("Cannot find libzipfile")
-
   conf.define("HAVE_CONFIG_H", 1)
 
   if sys.platform.startswith("sunos"):
@@ -548,7 +534,7 @@ def v8_cmd(bld, variant):
   else:
     snapshot = ""
 
-  cmd_R = sys.executable + ' "%s" -j %d -C "%s" -Y "%s" visibility=default mode=%s %s toolchain=%s library=static %s'
+  cmd_R = sys.executable + ' "%s" -j %d -C "%s" -Y "%s" visibility=default mode=%s %s toolchain=%s library=static %s -j4'
 
   cmd = cmd_R % ( scons
                 , Options.options.jobs
@@ -644,6 +630,8 @@ def build_uv(bld):
 
   if bld.env['DEST_CPU']=='ia32':
     uv.env.env['CPPFLAGS'] +=  " -m32 "
+
+  uv.env.env['CPPFLAGS'] +=  " -fPIC "
 
   t = join(bld.srcnode.abspath(bld.env_of_name("default")), uv.target)
   bld.env_of_name('default').append_value("LINKFLAGS_UV", t)
@@ -757,7 +745,15 @@ def build(bld):
     source.append(macros_loc_debug)
     js2c.JS2C(source, targets)
 
-  modloaderjslist = ' ' + bld.path.ant_glob('modules/proteus/proteusModLoader/lib/*.js') + ' ' + bld.path.ant_glob('modules/proteus/proteusPackageExtractor/lib/*.js') + ' ' + bld.path.ant_glob('modules/proteus/proteusUnzip/lib/*.js') + ' ../../external/node-sqlite-sync/sqlite.js ' + bld.path.ant_glob('modules/proteus/proteusDeviceInfo/lib/*.js')
+  modloaderjslist = ' ' + bld.path.ant_glob('modules/proteus/proteusModLoader/lib/*.js') + ' ' + \
+       bld.path.ant_glob('modules/proteus/proteusPackageExtractor/lib/*.js') + ' ' + \
+       bld.path.ant_glob('modules/proteus/proteusUnzip/lib/*.js') + \
+       ' ../node-sqlite-sync/sqlite.js ' + \
+       bld.path.ant_glob('modules/proteus/proteusDeviceInfo/lib/*.js') + ' ' + \
+       bld.path.ant_glob('modules/proteus/proteusConfig/lib/*.js') + ' ' + \
+       bld.path.ant_glob('modules/proteus/webapp/webapp.js') + ' ' + \
+       bld.path.ant_glob('modules/proteus/proteusSecureProxy/lib/secureproxy.js')
+
   native_cc = bld.new_task_gen(
     source='src/node.js ' + bld.path.ant_glob('lib/*.js') + modloaderjslist,
     target="src/node_natives.h",
@@ -842,9 +838,9 @@ def build(bld):
 
   ### node lib
   node = bld.new_task_gen("cxx", product_type)
-  node.name         = "node"
-  node.target       = "node"
-  node.uselib = 'RT OPENSSL CARES EXECINFO DL KVM SOCKET NSL KSTAT UTIL OPROFILE ZIPFILE'
+  node.name         = "qnode"
+  node.target       = "qnode"
+  node.uselib = 'RT OPENSSL CARES EXECINFO DL KVM SOCKET NSL KSTAT UTIL OPROFILE'
   node.add_objects = 'http_parser'
   if product_type_is_lib:
     node.install_path = '${LIBDIR}'
@@ -880,14 +876,24 @@ def build(bld):
     node.source += " src/node_stdio.cc "
     node.source += " src/node_child_process.cc "
     node.source += " src/node_timer.cc "
-    node.source += " proteus/main.cc "
 
   # proteus: add sync sqlite as builtin module - https://github.com/grumdrig/node-sqlite.git
-  node.source += " ../../external/node-sqlite-sync/sqlite3_bindings.cc "
+  node.source += " ../node-sqlite-sync/sqlite3_bindings.cc "
 
   # Modloader
   node.source += " modules/proteus/proteusUnzip/src/node_unzip.cc "
   node.source += " modules/proteus/proteusDeviceInfo/src/node_deviceinfo.cc "
+
+  # libzipfile
+  node.source += " libzipfile/centraldir.cc "
+  node.source += " libzipfile/zipfile.cc "
+
+  # memleak
+  node.source += " memleak/memleak.cc "
+
+  # desktop host
+  if product_type == 'program':
+     node.source += " src/main.cc "
 
   node.source += bld.env["PLATFORM_FILE"]
 
@@ -899,6 +905,8 @@ def build(bld):
     deps/uv/include
     deps/uv/src/ev
     deps/uv/src/ares
+    memleak
+    libzipfile
   """
 
   # proteus: link dependancy for sqlite
@@ -990,14 +998,18 @@ def shutdown():
       if os.path.exists('build/debug/node_g.exe'):
         os.system('cp build/debug/node_g.exe .')
     else:
-      if os.path.exists('build/default/node') and not os.path.exists('node'):
-        os.symlink('build/default/node', 'node')
-      if os.path.exists('build/debug/node_g') and not os.path.exists('node_g'):
-        os.symlink('build/debug/node_g', 'node_g')
+      if os.path.exists('build/default/qnode') and not os.path.exists('qnode'):
+        os.symlink('build/default/qnode', 'qnode')
+      if os.path.exists('build/debug/qnode_g') and not os.path.exists('qnode_g'):
+        os.symlink('build/debug/qnode_g', 'qnode_g')
+      if os.path.exists('build/default/libnode.so') and not os.path.exists('libnode.so'):
+        os.symlink('build/default/libnode.so', 'libnode.so')
   else:
     if sys.platform.startswith("win32"):
       if os.path.exists('node.exe'): os.unlink('node.exe')
       if os.path.exists('node_g.exe'): os.unlink('node_g.exe')
     else:
-      if os.path.exists('node'): os.unlink('node')
-      if os.path.exists('node_g'): os.unlink('node_g')
+      if os.path.exists('qnode'): os.unlink('qnode')
+      if os.path.exists('qnode_g'): os.unlink('qnode_g')
+      os.unlink('qnode')
+      os.unlink('libnode.so')

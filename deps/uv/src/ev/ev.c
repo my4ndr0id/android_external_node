@@ -2151,7 +2151,7 @@ ev_invoke_pending (EV_P)
         ANPENDING *p = pendings [pri] + --pendingcnt [pri];
 
         p->w->pending = 0;
-        NODE_LOGV("WATCHERS: ev_invoke_pending, p=%p w=%p cb=%p", p, p->w, p->w->cb);
+        NODE_LOGM("WATCHERS: ev_invoke_pending, p=%p w=%p cb=%p", p, p->w, p->w->cb);
         EV_CB_INVOKE (p->w, p->events);
         EV_FREQUENT_CHECK;
       }

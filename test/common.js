@@ -52,7 +52,7 @@ exports.globalCheck = true;
 process.on('exit', function() {
   if (!exports.globalCheck) return;
   if (global.window) {
-    console.log('no global leak checks for browser');
+    console.verbose('no global leak checks for browser');
     return;
   }
   var knownGlobals = [setTimeout,

@@ -59,6 +59,21 @@ function PackageContents() {
 function PackageExtractor() {}
 
 PackageExtractor.prototype.extract = function (filePath, moduleName, successCB, failureCB) {
+  var consts = {
+    TYPE_MISMATCH_ERR : "TYPE_MISMATCH_ERR",
+    TYPE_MISMATCH_ERR_MSG : "Type mismatch error - unexpected parameter",
+    INVALID_VALUES_ERR : "INVALID_VALUES_ERR",
+    INVALID_VALUES_ERR_MSG : "Invalid argument value provided",
+    NOT_FOUND_ERR : "NOT_FOUND_ERR",
+    PKGJSON_NOT_FOUND_ERR_MSG : "Package.json not found",
+    UNKNOWN_ERR : "UNKNOWN_ERR",
+    UNKNOWN_ERR_MSG : "Unknown error has occurred",
+    IO_ERR : "IO_ERR",
+    IO_ERR_MSG : "File not found or Incorrect file",
+    UNZIP_IO_ERR_MSG : "Unzip error",
+    SECURITY_ERR : "SECURITY_ERR",
+    SIG_SECURITY_ERR_MSG : "Invalid signature",
+  };
 
     var installationPath = process.downloadPath + '/' + moduleName;
 
@@ -69,18 +84,18 @@ PackageExtractor.prototype.extract = function (filePath, moduleName, successCB, 
     if (typeof failureCB !== 'function') {
         failureCB = function (e) {
             console.error("Error: " + e);
-            throw e;
+            //throw e;
         };
     }
 
     if (typeof filePath !== 'string' || typeof successCB != 'function') {
         console.error("filePath: " + filePath + " successCb: " + successCB);
-        return failureCB("Invalid arguments");
+        return failureCB(createError(consts.TYPE_MISMATCH_ERR, consts.TYPE_MISMATCH_ERR_MSG));
     }
 
 
     if (!path.existsSync(filePath)) {
-      return failureCB("File Path Provided Not Valid");
+      return failureCB(createError(consts.IO_ERR, consts.IO_ERR_MSG));
     }
 
 
@@ -100,16 +115,16 @@ PackageExtractor.prototype.extract = function (filePath, moduleName, successCB, 
                 if (path.existsSync(filePath)) {
                     fs.unlink(filePath);
                 }
-
-                return failureCB("Error: Error Reading File - " + err);
+                console.error("PackageExtractor::extract- Error: Reading File" + err);
+                return failureCB(createError(consts.IO_ERR, consts.IO_ERR_MSG));
             }
 
             if (bytesRead != fileSize) {
                 if (path.existsSync(filePath)) {
                     fs.unlink(filePath);
                 }
-
-                return failureCB("Error: Bytes Read Does Not Match File Size");
+                console.error("PackageExtractor::extract- Error: File size incorrect" );
+                return failureCB(createError(consts.IO_ERR, consts.IO_ERR_MSG));
             }
 
             var packageContents = new PackageContents();
@@ -172,15 +187,15 @@ PackageExtractor.prototype.extract = function (filePath, moduleName, successCB, 
                     if (path.existsSync(filePath)) {
                         fs.unlink(filePath);
                     }
-
-                    return failureCB("Exception Has Occurred " + ex.message);
+                    console.error("PackageExtractor::extract- Error: unziping zip contents" + ex.message);
+                    return failureCB(createError(consts.IO_ERR, consts.UNZIP_IO_ERR_MSG));
                 }
             } else {
                 if (path.existsSync(filePath)) {
                     fs.unlink(filePath);
                 }
 
-                return failureCB("Exception Has Occurred - Invalid Signature");
+                return failureCB(createError(consts.SECURITY_ERR, consts.SIG_SECURITY_ERR_MSG));
             }
 
             successCB();
@@ -245,6 +260,13 @@ function validatePackJson(temporaryPath) {
     return valid;
 }
 
+// creates and returns an Error object
+function createError(err, msg) {
+    var e = new Error(msg);
+    e.name = err;
+    return e;
+}
+
 /*
  * Verifies the package contents - First ensures the package public key matches that what is on the client.
  * Then verifies contents against the signature & public key of the crx package. If veriried correctly, returns bool TRUE.
@@ -258,11 +280,11 @@ function verifySig(packageContents) {
     var publicKey = "-----BEGIN PUBLIC KEY-----MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDGCjNQJYL2XuI8VrXEswxzw5N4DgDLyaNncSGUMkG5vz/XSEYsXih2+tjn89gDvoddXqeuVrkqm/ufGSnj6DhaobiDsXatO4Gk2md+IOwJOl/CjdBs6MzmKY05MwLk1aguDltsF1tfuzdD5czwTBVd2beYm97fKfA1SJBXX59g+QIDAQAB-----END PUBLIC KEY-----";
     var proteusConfigObj = new proteusConfig();
     var configObj = proteusConfigObj.getConfig();
-    if (configObj && typeof configObj.proteusPackageExtractor === 'object') {
-      var packageExtractorConfig = configObj.proteusPackageExtractor;
-      var configFileValue = packageExtractorConfig["Public-Key"];
+    if (configObj && typeof configObj.packageExtractor === 'object') {
+      var packageExtractorConfig = configObj.packageExtractor;
+      var configFileValue = packageExtractorConfig["publicKey"];
       if (configFileValue) {
-          publicKey = configFileValue;
+        publicKey = configFileValue;
       }
       console.info("Config file : [Public-Key] => [" + publicKey + "]");
     }

@@ -62,11 +62,6 @@ void IOWatcher::Callback(EV_P_ ev_io *w, int revents) {
   assert(w == &io->watcher_);
   HandleScope scope;
 
-  NODE_LOGM("io_watcher response (%p)", w);
-  // proteus: This is required since the exception doesnt have a context
-  // FIXME: deriving context from try_catch?
- // Context::Scope cscope(io->context_);
-
   Local<Value> callback_v = io->handle_->Get(callback_symbol);
   if (!callback_v->IsFunction()) {
     io->Stop();
@@ -126,7 +121,6 @@ Handle<Value> IOWatcher::Stop(const Arguments& args) {
 
 void IOWatcher::Start() {
   if (!ev_is_active(&watcher_)) {
-    NODE_LOGM("io_watcher start (%p)", &watcher_);
     ev_io_start(EV_DEFAULT_UC_ &watcher_);
     Ref();
   }
@@ -135,7 +129,6 @@ void IOWatcher::Start() {
 
 void IOWatcher::Stop() {
   if (ev_is_active(&watcher_)) {
-    NODE_LOGM("io_watcher stop (%p)", &watcher_);
     ev_io_stop(EV_DEFAULT_UC_ &watcher_);
     Unref();
   }

@@ -33,7 +33,8 @@
 #include <string.h>
 #include <node_buffer.h>
 #include <sys/stat.h>
-
+#include <cstring>
+#include <string>
 #ifdef ANDROID
 #include <cutils/properties.h>
 #endif
@@ -45,13 +46,21 @@ using namespace node;
 class DeviceInfoUtil: ObjectWrap {
   private :
     Node *m_node;
+    char *m_downloadPath;
   public:
     Node *node() { return m_node; }
 
     static Persistent<FunctionTemplate> s_ct;
 
-    DeviceInfoUtil(Node *node_) : m_node(node_)
+    DeviceInfoUtil(Node *node_, char* downloadPath) : m_node(node_)
     {
+      m_downloadPath = strdup(downloadPath);
+    }
+
+    ~DeviceInfoUtil(){
+      free(m_downloadPath);
+      m_node = 0;
+      m_downloadPath = 0;
     }
 
     static void InitDeviceInfo(Handle<Object> target){
@@ -75,13 +84,13 @@ class DeviceInfoUtil: ObjectWrap {
       bool accessPermission = false;
 
       if (args.Length() == 0)
-	return v8::ThrowException(v8::String::New("Bad parameters"));
+          return v8::ThrowException(v8::String::New("Bad parameters"));
 
       if (args.Length() > 1 || *args[1] == NULL)
-	return v8::ThrowException(v8::String::New("Bad parameters"));
+          return v8::ThrowException(v8::String::New("Bad parameters"));
 
       if (*args[0] == NULL)
-	return v8::ThrowException(v8::String::New("Bad parameters"));
+          return v8::ThrowException(v8::String::New("Bad parameters"));
 
       String::AsciiValue property(args[0]->ToString());
 
@@ -92,7 +101,7 @@ class DeviceInfoUtil: ObjectWrap {
       NODE_LOGV("%s, GetSystemProp : Property %s  --> %s\n", __FUNCTION__, *property, propertyValue);
       return scope.Close(v8::String::New((char *)&propertyValue));
 #else
-      return scope.Close(v8::String::New(""));
+      return scope.Close(v8::String::New("Desktop"));
 #endif
     }
 
@@ -102,22 +111,26 @@ class DeviceInfoUtil: ObjectWrap {
       bool accessPermission = false;
 
       if (args.Length() == 0)
-	return v8::ThrowException(v8::String::New("Bad parameters"));
+          return v8::ThrowException(v8::String::New("Bad parameters"));
 
       if (args.Length() > 1 || *args[1] == NULL)
-	return v8::ThrowException(v8::String::New("Bad parameters"));
+          return v8::ThrowException(v8::String::New("Bad parameters"));
 
       if (*args[0] == NULL)
-	return v8::ThrowException(v8::String::New("Bad parameters"));
+          return v8::ThrowException(v8::String::New("Bad parameters"));
 
       DeviceInfoUtil* deviceInfoUtil = ObjectWrap::Unwrap<DeviceInfoUtil>(args.This());
-
       String::AsciiValue property(args[0]->ToString());
-
-      std::string propertyValue = deviceInfoUtil->node()->client()->GetEnvironmentProperty(*property, false);
-
-      NODE_LOGV("%s, GetEnvironmentProp : Property %s  --> %s\n", __FUNCTION__, *property, propertyValue.c_str());
-      return scope.Close(v8::String::New((char *)propertyValue.c_str()));
+#ifdef ANDROID
+      const char* propertyValue = deviceInfoUtil->node()->client()->GetEnvironmentProperty(*property, false);
+      NODE_LOGV("%s, GetEnvironmentProp : Property %s  --> %s\n", __FUNCTION__, *property, propertyValue);
+      return scope.Close(v8::String::New((char *)propertyValue));
+#else
+      std::string path;
+      path.append(deviceInfoUtil->m_downloadPath);
+      path.append(*property);
+      return scope.Close(v8::String::New(path.c_str()));
+#endif
     }
 
     static Handle<Value> New(const Arguments& args)
@@ -127,9 +140,11 @@ class DeviceInfoUtil: ObjectWrap {
       // we need to explicitly pass it
       NODE_ASSERT(!args[0].IsEmpty() && args[0]->IsObject());
       Handle<Object> process = args[0]->ToObject();
+      String::AsciiValue downloadPath(args[1]->ToString());
+
       Node *node_ = static_cast<Node*>(process->GetPointerFromInternalField(0));
       NODE_LOGD("%s, node(%p)", __FUNCTION__, node_);
-      DeviceInfoUtil* deviceInfoUtil = new DeviceInfoUtil(node_);
+      DeviceInfoUtil* deviceInfoUtil = new DeviceInfoUtil(node_, *downloadPath);
       deviceInfoUtil->Wrap(args.This());
       return args.This();
     }

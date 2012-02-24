@@ -75,6 +75,13 @@
 
     var Module = NativeModule.require('module');
     var proteusModLoader = Module.require('proteusModLoader', null);
+
+    var createError = function (err, msg) {
+        var e = new Error(msg);
+        e.name = err;
+        return e;
+    }
+
     var loadModule = function(request, successCB, errorCB) {
       console.info("loadModule: " + request);
 
@@ -89,52 +96,62 @@
         }
       }
 
-      // FIXME: we need to specify the error object for loadModule and the error codes
+      var webapp = Module.require('webapp');
+      var proteusConfig = Module.require('proteusConfig', null);
+      var proteusConfigObj = new proteusConfig();
+      var mode = 'server';
+      var configObj = proteusConfigObj.getConfig();
+      if (configObj && typeof configObj.mode === 'string') {
+        mode = configObj.mode;
+      }
       if (typeof request !== 'string' || typeof successCB != 'function') {
         console.error("loadModule: Invalid arguments: request: " + request + " successCB: " + successCB);
-        return errorCB(new Error("Invalid arguments"));
+        return webapp.callback(errorCB, createError("TYPE_MISMATCH_ERR","Type mismatch error - unexpected parameter"));
       }
 
       var isValidLoadModulePath = /^\s*[\w-.]+\s*$/.test(request);
       if (!isValidLoadModulePath) {
         console.error("loadModule: Invalid request: " + request);
-        return errorCB(new Error("Invalid request: " + request));
+        return webapp.callback(errorCB, createError("INVALID_VALUES_ERR","Invalid argument value provided"));
       }
-
-      // loadModule(foo) will lookup module named "public-foo" in the downloads directory
-      console.verbose("node.js, loadModule. calling Module.require, request = " + request);
 
       var proteusModLoaderObj = new proteusModLoader();
       var loadSuccessCB = function() {
-        var module = Module.require('public-' + request, null);
+        console.verbose("loadModule: require(public-" + request + ")");
+        var module = Module.require('public-' + request);
         // errors in successCB (caller code) should not be caught by errorCB
-          if (typeof module.loadAsync === 'function'){
-            module.loadAsync(successCB, errorCB);
-	}
-	else{
-	  successCB(module);
-	}
+        if (typeof module.loadAsync === 'function'){
+          module.loadAsync(successCB, errorCB);
+        } else {
+          webapp.callback(successCB, module);
+        }
       }
-      proteusModLoaderObj.loadPackage('public-' + request, loadSuccessCB, function(e){ errorCB(e); });
+
+      if (mode === 'local'){
+        console.info("loadModule: using local modules only.");
+        loadSuccessCB();
+      } else {
+        proteusModLoaderObj.loadPackage('public-' + request, loadSuccessCB, function(e){
+            webapp.callback(errorCB, e);
+          });
+      }
     };
 
-    // expose loadModuleSync in the node context for service node case
-    global.loadModuleSync = function(path) {
-      return Module.require('public-' + path, null);
-    }
-
-    // expose async loadModule as well in case modules want to use it
+    // expose require and loadModule in node context
     global.loadModule = loadModule;
-    return loadModule;
+
+    // cache the setTimeout from browser/host context
+    process.hostSetTimeout = window.setTimeout ? window.setTimeout : setTimeout;
+
+    // return loadModule, require for the native code
+    return [loadModule, Module.require];
   }
 
   startup.globalVariables = function() {
     GLOBAL = global; //sqlite_sync needs this and possibly other node modules
-    // expose Buffer on the process object which is not visible to untrusted code
     process.Buffer = NativeModule.require('buffer').Buffer;
   };
 
-  // REQ: modules will use the 'node's' timeout implementation and not rely on browser (e.g. for setTimeout)
   startup.globalTimeouts = function() {
     global.setTimeout = function() {
       var t = NativeModule.require('timers');
@@ -311,6 +328,7 @@
     }
 
     if (!NativeModule.exists(id)) {
+      console.error("No native module: " + id);
       throw new Error('No such native module ' + id);
     }
 

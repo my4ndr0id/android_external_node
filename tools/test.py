@@ -651,7 +651,7 @@ TIMEOUT_SCALEFACTOR = {
 
 class Context(object):
 
-  def __init__(self, workspace, buildspace, verbose, vm, timeout, processor, suppress_dialogs, store_unexpected_output):
+  def __init__(self, workspace, buildspace, verbose, vm, timeout, processor, suppress_dialogs, store_unexpected_output, qnode_path):
     self.workspace = workspace
     self.buildspace = buildspace
     self.verbose = verbose
@@ -660,12 +660,11 @@ class Context(object):
     self.processor = processor
     self.suppress_dialogs = suppress_dialogs
     self.store_unexpected_output = store_unexpected_output
+    self.qnode_path = qnode_path
 
   def GetVm(self, mode):
-    if mode == 'debug':
-      name = 'build/debug/node_g'
-    else:
-      name = 'build/default/node'
+    # dapi: add qnode dir
+    name = self.qnode_path + '/qnode';
 
     if utils.IsWindows() and not name.endswith('.exe'):
       name = os.path.abspath(name + '.exe')
@@ -1122,6 +1121,8 @@ ARCH_GUESS = utils.GuessArchitecture()
 
 def BuildOptions():
   result = optparse.OptionParser()
+  result.add_option("-q", "--qnode-path", help="path to qnode",
+      default='./')
   result.add_option("-m", "--mode", help="The test modes in which to run (comma-separated)",
       default='release')
   result.add_option("-v", "--verbose", help="Verbose output",
@@ -1311,7 +1312,8 @@ def Main():
                     options.timeout,
                     GetSpecialCommandProcessor(options.special_command),
                     options.suppress_dialogs,
-                    options.store_unexpected_output)
+                    options.store_unexpected_output,
+                    options.qnode_path)
   # First build the required targets
   if not options.no_build:
     reqs = [ ]

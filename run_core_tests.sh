@@ -49,28 +49,28 @@ help() {
 for i in $*
 do
    case $i in
-      -t=*|--target=*)
-          TARGET=`echo $i | sed 's/[-a-zA-Z0-9]*=//'`
-          ;;
-      -d=*|--dir=*)
-          TESTDIR=`echo $i | sed 's/[-a-zA-Z0-9]*=//'`
-          ;;
-      -f=*|--filter=*)
-          FILTER=`echo $i | sed 's/[-a-zA-Z0-9]*=//'`
-          ;;
-      -s|--silent)
-          SILENT='true'
-          ;;
-      -c=*|--count=*)
-          COUNT=`echo $i | sed 's/[-a-zA-Z0-9]*=//'`
-          ;;
-      -h|--help)
-          help
-          ;;
-      *)
-          echo "Invalid option: " $i
-          help
-          ;;
+        -t=*|--target=*)
+		TARGET=`echo $i | sed 's/[-a-zA-Z0-9]*=//'`
+		;;
+        -d=*|--dir=*)
+		TESTDIR=`echo $i | sed 's/[-a-zA-Z0-9]*=//'`
+		;;
+        -f=*|--filter=*)
+		FILTER=`echo $i | sed 's/[-a-zA-Z0-9]*=//'`
+		;;
+        -s|--silent)
+		SILENT='true'
+		;;
+        -c=*|--count=*)
+		COUNT=`echo $i | sed 's/[-a-zA-Z0-9]*=//'`
+		;;
+        -h|--help)
+                help
+		;;
+         *)
+                echo "Invalid option: " $i
+                help
+                ;;
    esac
 done
 
@@ -87,8 +87,8 @@ else
 fi
 
 if [ "$TARGET" == "desktop" ]; then
-   gnome-terminal --geometry=200 -x bash -c "NODE_DEBUG=E ./proteus/tools/node_test.py $TARGET $TESTDIR $COUNT $FILTER | egrep $GREPSTR; exec bash"
+   gnome-terminal --geometry=200 -x bash -c "NODE_DEBUG=E ./proteus/tools/node_test.py $TARGET $TESTDIR $COUNT $FILTER| egrep $GREPSTR; exec bash"
 else
-   gnome-terminal -x bash -c  "./proteus/tools/node_test.py $TARGET $TESTDIR $FILTER $COUNT; exec bash"
+   gnome-terminal -x bash -c  "./proteus/tools/node_test.py $TARGET $TESTDIR $COUNT $FILTER; exec bash"
    gnome-terminal --geometry=200 -x bash -c "adb logcat -c; adb logcat -v time| egrep $GREPSTR; exec bash"
 fi

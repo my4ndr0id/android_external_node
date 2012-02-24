@@ -47,22 +47,35 @@ var PERM = 448;
 function proteusModManager() {
     var request = null;
     var localSetting = {
-        "Server-URL": "https://10.42.61.254",
-        "Server-Port": "4000",
-        "Client-ConnTimeout": 5000,
-        "Client-UpdatePeriod": 1209600000,
-        "Client-RetryTime": 2000,
-        "Client-CoreModulesUpgrade": []
+        "serverURL": "https://DAPIProd.quicinc.com",
+        "serverPort": "443",
+        "clientConnTimeout": 5000,
+        "clientUpdatePeriod": 1209600000,
+        "clientRetryTime": 500,
+        "clientCoreModulesUpgrade": []
+    };
+    var consts = {
+        NETWORK_ERR: "TYPE_NETWORK_ERR",
+        NETWORK_ERR_MSG: "Network error",
+        TYPE_MISMATCH_ERR: "TYPE_MISMATCH_ERR",
+        TYPE_MISMATCH_ERR_MSG: "Type mismatch error - unexpected parameter",
+        INVALID_VALUES_ERR: "INVALID_VALUES_ERR",
+        INVALID_VALUES_ERR_MSG: "Invalid argument value provided",
+        NOT_FOUND_ERR: "NOT_FOUND_ERR",
+        MODULE_NOT_FOUND_ERR_MSG: "Module not found",
+        UNKNOWN_ERR: "UNKNOWN_ERR",
+        UNKNOWN_ERR_MSG: "Unknown error has occurred"
     };
     var proteusConfig = require("proteusConfig");
+
     function getProperty(propertyName) {
         var value = localSetting[propertyName];
         var proteusConfigObj = new proteusConfig();
         var configObj = proteusConfigObj.getConfig();
-        if (configObj && typeof configObj.proteusModLoader === 'object') {
-            var proteusModLoaderConfig = configObj.proteusModLoader;
+        if (configObj && typeof configObj.modLoader === 'object') {
+            var proteusModLoaderConfig = configObj.modLoader;
             var configFileValue = proteusModLoaderConfig[propertyName];
-            if (configFileValue){
+            if (configFileValue) {
                 value = configFileValue;
             }
         }
@@ -101,7 +114,7 @@ function proteusModManager() {
 
     function getCoreModules(modules) {
         try {
-            var coreModules = getProperty("Client-CoreModulesUpgrade");
+            var coreModules = getProperty("clientCoreModulesUpgrade");
             for (var i in coreModules) {
                 modules.push(coreModules[i]);
             }
@@ -162,7 +175,7 @@ function proteusModManager() {
             console.info("downloadHandler : " + pkgsList);
             if (pkgsList.length > 0) {
                 // download the pkg
-                process.acquireLock(function () {
+                process.acquireLock(function() {
                     // check once more if the item was downloaded due to another instance while this was waiting
                     if (isPkgAvailable(pkgsList[0])) {
                         console.info(pkgsList[0] + " is Available due to another instance");
@@ -171,7 +184,7 @@ function proteusModManager() {
                         process.releaseLock();
                         callback(true);
                     } else {
-                        download(pkgsList[0], function (path, statusCode) {
+                        download(pkgsList[0], function(path, statusCode) {
                             console.info(pkgsList[0] + " Download Success : Path :" + path + " statuscode :" + statusCode);
                             // add more
                             var newDependencies = getDependencies(pkgsList[0]);
@@ -180,17 +193,17 @@ function proteusModManager() {
                             pkgsList = pkgsList.concat(newDependencies);
                             callback(true);
                             process.releaseLock();
-                        }, function (result, statusCode) {
-                            console.error(pkgsList[0] + " Download Failed : " + result + statusCode);
+                        }, function(error) {
+                            console.error(pkgsList[0] + " Download Failed : " + error);
                             process.releaseLock();
-                            callback(false);
+                            callback(false, error);
                         });
                     }
                 });
             }
         }
 
-        function checkPkgs(result) {
+        function checkPkgs(result, error) {
             if (result) {
                 if (pkgsList.length > 0) {
                     if (isPkgAvailable(pkgsList[0])) {
@@ -220,7 +233,7 @@ function proteusModManager() {
                         console.error("checkPkgs:: rmdirRSync :" + PROTEUS_PATH + pkgsDownloadedList[n] + " Failed");
                     }
                 }
-                callback(false);
+                callback(false, error);
             }
         }
         pkgsList.push(pkg);
@@ -229,14 +242,13 @@ function proteusModManager() {
 
     function download(moduleName, successCB, failureCB) {
         if (typeof failureCB !== 'function') {
-            failureCB = function (err) {
+            failureCB = function(err) {
                 console.error("error in download: " + err);
-                //throw err;
             };
         }
         if (typeof moduleName !== 'string' || typeof successCB != 'function') {
             console.error("moduleName: " + moduleName + " successCB: " + successCB);
-            return failureCB("Invalid arguments");
+            return failureCB(createError(consts.TYPE_MISMATCH_ERR, consts.TYPE_MISMATCH_ERR_MSG));
         }
         if (path.existsSync(TEMP_PATH) === false) {
             fs.mkdirSync(TEMP_PATH, PERM);
@@ -246,9 +258,9 @@ function proteusModManager() {
             console.info("ProteusModLoader::installPackage ::  crx file  " + filePath);
             var installPath;
             installPath = PROTEUS_PATH + moduleName;
-            packageExtractor.packageExtractor.extract(filePath, moduleName, function () {
+            packageExtractor.packageExtractor.extract(filePath, moduleName, function() {
                 successCB(installPath);
-            }, function (error) {
+            }, function(error) {
                 failureCB(error);
             });
         }
@@ -256,31 +268,42 @@ function proteusModManager() {
 
         function downloadModule(requestUrl, numRedirect, successCB, failureCB) {
             var downloadPath = TEMP_PATH + moduleName + ".crx";
-            var requestCancelFn;
+            var requestCancelFn = null, clearTimeoutfn = null, fileStreamCancelFn = null;
+            var reqTimeoutObj = null;
+            var abort = false;
+            var connected = false;
+            var downloadModFile = null;
             try {
                 var contentLength = 0;
                 var bytesDownloaded = 0;
                 if (path.existsSync(downloadPath)) {
                     fs.unlink(downloadPath);
                 }
-                console.info("Download Module :: requestUrl : ", requestUrl);
+                //console.info("Download Module :: requestUrl : ", requestUrl);
                 console.info("ProteusModLoader::downloadModule Module: " + moduleName + " to Directory : " + downloadPath);
                 var parsedURL = url.parse(requestUrl);
                 var options = {
                     host: parsedURL.host,
-                    port: getProperty("Server-Port"),
+                    port: getProperty("serverPort"),
                     path: parsedURL.pathname + parsedURL.search,
                     method: 'GET'
                 };
                 // function to cleanup if request is being cancelled
-                requestCancelFn = function () {
+                requestCancelFn = function() {
                     if (request) {
                         console.info("Abort module  download:" + moduleName);
                         request.abort();
+                        clearTimeoutfn();
+                        if (fileStreamCancelFn)
+                            fileStreamCancelFn();
                         request = null;
+                        abort = true;
                     }
                 };
-                request = https.request(options, function (response) {
+                console.info("<<Time : Start connection Download" + moduleName + ">>" + Date.now());
+                request = https.request(options, function(response) {
+                console.info("<<Time : Connected To server for : " + moduleName + ">>" + Date.now());
+                connected = true;
                     try {
                         switch (response.statusCode) {
                         case 200:
@@ -293,31 +316,31 @@ function proteusModManager() {
                         case 404:
                             console.error("Module " + moduleName + " Not Found");
                             // unregister function for node destruction.
+                            clearTimeoutfn();
                             process.removeListener('exit', requestCancelFn);
-                            failureCB("Module Not Found ", response.statusCode);
+                            failureCB(createError(consts.NOT_FOUND_ERR, consts.MODULE_NOT_FOUND_ERR_MSG));
                             //request.abort();
                             break;
                         default:
                             //request.abort();
                             // unregister function for node destruction.
+                            clearTimeoutfn();
                             process.removeListener('exit', requestCancelFn);
-                            failureCB("Error ", response.statusCode);
+                            failureCB(createError(consts.NETWORK_ERR, consts.NETWORK_ERR_MSG));
                             return;
                         }
-                        var downloadModFile = 0;
                         // function to cleanup stream on exit
-
-                        var fileStreamCancelFn = function() {
-                            if (downloadModFile) {
-                                console.info("Abort file stream write:");
-                                downloadModFile.destroy();
-                                downloadModFile = null;
-                            }
-                        }
-                        response.on('data', function (data) {
+                        fileStreamCancelFn = function() {
+                                if ((connected === true) && downloadModFile) {
+                                    console.info("Abort file stream write:");
+                                    downloadModFile.destroy();
+                                    downloadModFile = null;
+                                }
+                            };
+                        response.on('data', function(data) {
                             if ((data.length > 0) && (response.statusCode == 200)) {
                                 // Open only if the file is not opened already
-                                if (!downloadModFile) {
+                                if (downloadModFile === null) {
                                     downloadModFile = fs.createWriteStream(downloadPath, {
                                         'flags': 'a'
                                     });
@@ -326,121 +349,143 @@ function proteusModManager() {
                                 bytesDownloaded += data.length;
                                 var percent = parseInt((bytesDownloaded / contentLength) * 100, 10);
                                 console.info("Module " + moduleName + " Progress: " + percent);
-                                downloadModFile.addListener('close', function () {
-                                    console.info("closing file bytesWritten : " + bytesDownloaded + " contentLength : " + contentLength);
-                                    if (downloadModFile.bytesWritten != contentLength) {
-                                        console.info(" Missed writing to file bytesDownloaded: " + downloadModFile.bytesWritten + "contentLength" + contentLength);
-                                        // unregister function for node destruction.
+                                downloadModFile.addListener('close', function() {
+                                    if (downloadModFile && (abort === false)) {
+                                        if (downloadModFile.bytesWritten != contentLength) {
+                                            console.error(" Incomplete download bytesDownloaded: " + downloadModFile.bytesWritten + "contentLength" + contentLength);
+                                            failureCB(createError(consts.NETWORK_ERR, consts.NETWORK_ERR_MSG));
+                                        } else {
+                                            installPackage(downloadPath, function(installPath) {
+                                                console.info("Installed module :" + moduleName);
+                                                successCB(installPath, response.statusCode);
+                                            }, function(ex) {
+                                                console.error("installPackage Got error: " + ex);
+                                                failureCB(ex);
+                                            });
+                                        }
                                         process.removeListener('exit', requestCancelFn);
-                                        process.removeListener('exit', fileStreamCancelFn);
-                                        downloadModFile = null;
-                                        failureCB("Incomplete Download", 0);
-                                    } else {
-                                        // unregister function for node destruction.
-                                        process.removeListener('exit', requestCancelFn);
-                                        process.removeListener('exit', fileStreamCancelFn);
-                                        downloadModFile = null;
-                                        installPackage(downloadPath, function (installPath) {
-                                            console.info("Installed module :" + moduleName);
-                                            // unregister function for node destruction.
-                                            process.removeListener('exit', requestCancelFn);
-                                            successCB(installPath, response.statusCode);
-                                        }, function (ex) {
-                                            console.error("Got error: " + ex);
-                                            // unregister function for node destruction.
-                                            process.removeListener('exit', requestCancelFn);
-                                            failureCB(ex, 0);
-                                        });
                                     }
+                                    downloadModFile = null;
                                 });
                             }
-                            process.on('exit', fileStreamCancelFn);
                         });
-                        request.connection.setTimeout(getProperty("Client-ConnTimeout"));
-                        response.on('end', function () {
+                        response.on('end', function() {
                             if (response.statusCode == 200) {
+                                // unregister function for node destruction.
+                                clearTimeoutfn();
+                                console.info("<<Time : Download Complete: " + moduleName + ">>" + Date.now());
                                 downloadModFile.end();
                             }
                         });
-                        response.on('close', function (err) {
+                        response.on('close', function(err) {
+                            // unregister function for node destruction.
+                            clearTimeoutfn();
                             // delete file if its already present
                             if (path.existsSync(downloadPath)) {
                                 fs.unlinkSync(downloadPath);
                             }
-                            // unregister function for node destruction.
-                            process.removeListener('exit', requestCancelFn);
-                            failureCB(err, response.statusCode);
+                            if (response.statusCode == 200) {
+                                downloadModFile.end();
+                            }
                         });
                     } catch (ex) {
+                        console.error("Response Got error: " + ex.message);
                         // delete file if its already present
                         if (path.existsSync(downloadPath)) {
                             try {
                                 fs.unlinkSync(downloadPath);
                             } catch (ex) {
-                                console.error("Got error: " + ex.message);
+                                console.error("unlinkSync Got error: " + ex.message);
                             }
                             // unregister function for node destruction.
+                            clearTimeoutfn();
                             process.removeListener('exit', requestCancelFn);
-                            failureCB(ex, 0);
+                            failureCB(createError(consts.NETWORK_ERR, consts.NETWORK_ERR_MSG));
                         }
                     }
                 });
                 request.end();
-                request.on('error', function (e) {
+
+                clearTimeoutfn = function() {
+                    if (reqTimeoutObj) {
+                        clearTimeout(reqTimeoutObj);
+                        reqTimeoutObj = null;
+                    }
+                };
+                // cleanup the reques tif the request is taking too long
+                reqTimeoutObj = setTimeout(function() {
+                      console.error("Server Taking too long request cancelled isConnected :" + connected);
+                      console.info("<<Time : Request Timeout : " + moduleName + ">>" + Date.now());
+                      requestCancelFn();
+                      process.removeListener('exit', requestCancelFn);
+                      // might not be yet defined if response is not recieved
+                      reqTimeoutObj = null;
+                      failureCB(createError(consts.NETWORK_ERR, consts.NETWORK_ERR_MSG));
+                }, getProperty("clientConnTimeout"));
+
+                request.on('error', function(e) {
                     // delete file if its already present
                     if (path.existsSync(downloadPath)) {
                         fs.unlinkSync(downloadPath);
                     }
                     // unregister function for node destruction.
+                    clearTimeoutfn();
                     process.removeListener('exit', requestCancelFn);
-                    failureCB(e.message, 0);
-                    console.error("Got error: " + e.message);
+                    console.error("Request Got error: " + e.message);
+                    failureCB(createError(consts.NETWORK_ERR, consts.NETWORK_ERR_MSG));
                 });
                 process.on('exit', requestCancelFn);
             } catch (ex) {
+                console.error("Download Got error: " + ex.message);
                 // delete file if its already present
                 if (path.existsSync(downloadPath)) {
                     try {
                         fs.unlinkSync(downloadPath);
                     } catch (ex) {
-                        console.error("Got error: " + ex.message);
+                        console.error("unlinkSync Got error: " + ex.message);
                     }
                     // unregister function for node destruction.
+                    clearTimeoutfn();
                     process.removeListener('exit', requestCancelFn);
-                    failureCB(ex, 0);
+                    failureCB(createError(consts.UNKNOWN_ERR, consts.UNKNOWN_ERR_MSG));
                 }
             }
         }
 
         function downloadNow() {
             var encodedQueryStr = encodeURIComponent(getDeviceInfo() + 'Module=' + moduleName);
-            var requestUrl = getProperty("Server-URL") + '/getModule?' + encodedQueryStr; // www.qualcomm-xyz.com/getModule?AV=4.0&PV=1.0.0&Module=xyz
+            var requestUrl = getProperty("serverURL") + '/getModule?' + encodedQueryStr; // www.qualcomm-xyz.com/getModule?AV=4.0&PV=1.0.0&Module=xyz
             downloadModule(requestUrl, 0, successCB, failureCB);
         }
         downloadNow();
     }
 
     function getVersions(requestUrl, successCB, failureCB) {
-        var abortVersionCheckFn;
+        console.info("Get Versions");
+        var abortVersionCheckFn = null, clearTimeoutfn = null;
+        var reqTimeoutObj = null;
+        var abort = false;
         try {
             var contentLength = 0;
             var bytesDownloaded = 0;
             var parsedURL = url.parse(requestUrl);
             var options = {
                 host: parsedURL.host,
-                port: getProperty("Server-Port"),
+                port: getProperty("serverPort"),
                 path: parsedURL.pathname + parsedURL.search,
                 method: 'GET'
             };
             console.info("Get version :: requestUrl : split " + sys.inspect(options));
-            abortVersionCheckFn = function () {
+            abortVersionCheckFn = function() {
                 if (request && process.getModuleUpdates() < 2) {
                     console.info("Abort querying Version from server ");
+                    clearTimeoutfn();
                     request.abort();
                     request = null;
+                    abort = true;
                 }
             };
-            request = https.request(options, function (response) {
+            request = https.request(options, function(response) {
                 try {
                     var versionResponse = '';
                     switch (response.statusCode) {
@@ -449,39 +494,48 @@ function proteusModManager() {
                         break;
                     case 302:
                         var redirectedRemote = response.headers.location;
-                        geVersions(redirectedRemote, successCB, failureCB);
+                        getVersions(redirectedRemote, successCB, failureCB);
                         return;
                     case 404:
                         console.error("unable to get latest versions");
                         // unregister function for node destruction.
+                        clearTimeoutfn();
                         process.removeListener('exit', abortVersionCheckFn);
                         request.abort();
                         failureCB("unable to get latest version", response.statusCode);
                         break;
                     default:
                         // unregister function for node destruction.
+                        clearTimeoutfn();
                         process.removeListener('exit', abortVersionCheckFn);
                         request.abort();
                         failureCB("Error ", response.statusCode);
                         return;
                     }
-                    response.on('data', function (data) {
+                    response.on('data', function(data) {
+                        console.info("got response" + data);
                         if ((data.length > 0) && (response.statusCode == 200)) {
                             versionResponse += data;
                         }
                     });
-                    response.on('end', function () {
+                    response.on('end', function() {
+                        console.info("getVersion in response on end ");
                         if (response.statusCode == 200) {
                             // unregister function for node destruction.
+                            clearTimeoutfn();
                             process.removeListener('exit', abortVersionCheckFn);
-                            successCB(versionResponse, response.statusCode);
+                            if (abort === false) {
+                                successCB(versionResponse, response.statusCode);
+                            }
                         }
                     });
-                    response.on('close', function (err) {
-                        console.error("Got error: " + err.message);
+                    response.on('close', function(err) {
+                        console.error("Response close Got error: " + err.message);
                         // unregister function for node destruction.
                         process.removeListener('exit', abortVersionCheckFn);
-                        failureCB(err, response.statusCode);
+                        if (abort === false) {
+                            failureCB(err, response.statusCode);
+                        }
                     });
                 } catch (ex) {
                     console.error("Got error: " + ex.message);
@@ -491,10 +545,24 @@ function proteusModManager() {
                 }
             });
             request.end();
-            request.connection.setTimeout(getProperty("Client-ConnTimeout"));
-            request.on('error', function (e) {
-                console.error("Got error: " + e.message);
+            clearTimeoutfn = function() {
+                if (reqTimeoutObj) {
+                    clearTimeout(reqTimeoutObj);
+                    reqTimeoutObj = null;
+                }
+            };
+            reqTimeoutObj = setTimeout(function() {
+                reqTimeoutObj = null;
+                console.error("Server Taking too long");
+                abortVersionCheckFn();
+                process.removeListener('exit', abortVersionCheckFn);
+                failureCB("unable to get latest version ", 0);
+            }, getProperty("clientConnTimeout"));
+
+            request.on('error', function(e) {
+                console.error("GetVersion Request Got error: " + e.message);
                 // unregister function for node destruction.
+                clearTimeoutfn();
                 process.removeListener('exit', abortVersionCheckFn);
                 failureCB(e.message, 0);
             });
@@ -503,20 +571,22 @@ function proteusModManager() {
         } catch (ex) {
             console.error("Got error: " + ex.message);
             // unregister function for node destruction.
+            clearTimeoutfn();
             process.removeListener('exit', abortVersionCheckFn);
             failureCB(ex, 0);
         }
     }
 
+
     function getLatestVersions(modules, callback) {
         var encodedQueryStr = encodeURIComponent(getDeviceInfo() + 'Modules=' + modules.join(','));
-        var requestUrl = getProperty("Server-URL") + '/getVersions?' + encodedQueryStr;
-        console.info("GetVersion : requestUrl : " + requestUrl);
+        var requestUrl = getProperty("serverURL") + '/getVersions?' + encodedQueryStr;
+        //console.info("GetVersion : requestUrl : " + requestUrl);
         try {
-            getVersions(requestUrl, function (modules, statusCode) {
+            getVersions(requestUrl, function(modules, statusCode) {
                 console.info("GetVersion Success : modules" + modules + " statuscode :" + statusCode);
                 callback(true, modules);
-            }, function (result, statusCode) {
+            }, function(result, statusCode) {
                 console.error("GetVersion Failed : " + result + statusCode);
                 callback(false);
             });
@@ -605,14 +675,16 @@ function proteusModManager() {
         try {
             var now = Date.now();
             var lastCheck = readUpdateStatus();
-            if (!lastCheck || (parseInt(now.toString(), 10) > (parseInt(lastCheck, 10) + getProperty("Client-UpdatePeriod")))) {
-                console.info("Updates check required now: " + now + " lastCheck : " + lastCheck + " updatePeriod :" + getProperty("Client-UpdatePeriod"));
+            console.info("In check updates");
+            if (!lastCheck || (parseInt(now.toString(), 10) > (parseInt(lastCheck, 10) + getProperty("clientUpdatePeriod")))) {
+                console.info("Updates check required now: " + now + " lastCheck : " + lastCheck + " updatePeriod :" + getProperty("clientUpdatePeriod"));
                 var mods = getDownloadedModules();
                 // Get Core modules
                 // getCoreModules(mods);
                 if (mods.length > 0) {
                     try {
-                        getLatestVersions(mods, function (result, versions) {
+                        console.info("Reques server for updates");
+                        getLatestVersions(mods, function(result, versions) {
                             if (result) {
                                 console.info("Module List :" + mods);
                                 console.info("Server Vesion List :" + sys.inspect(versions));
@@ -659,7 +731,7 @@ function proteusModManager() {
                 }
             } // if updates checked
             else {
-                console.info("Updates check not required : " + now + " lastCheck : " + lastCheck + " updatePeriod :" + getProperty("Client-UpdatePeriod"));
+                console.info("Updates check not required : " + now + " lastCheck : " + lastCheck + " updatePeriod :" + getProperty("clientUpdatePeriod"));
                 // set that the modules have been updated.
                 process.setModuleUpdates(2);
                 process.releaseLock();
@@ -677,16 +749,26 @@ function proteusModManager() {
         process.setModuleUpdates(1); //set the flag to inprogress state
         process.acquireLock(checkUpdates);
     }
-    proteusModManager.prototype.loadPackage = function (pkgName, successCB, failureCB) {
+
+    // creates and returns an Error object
+
+
+    function createError(err, msg) {
+        var e = new Error(msg);
+        e.name = err;
+        return e;
+    }
+
+    proteusModManager.prototype.loadPackage = function(pkgName, successCB, failureCB) {
         var timerObj, clearTimeoutfn;
         if (typeof failureCB !== 'function') {
-            failureCB = function (err) {
+            failureCB = function(err) {
                 console.error("error in loadPackage: " + err);
             };
         }
         if (typeof pkgName !== 'string' || typeof successCB != 'function') {
             console.error("pkgName: " + pkgName + " successCB: " + successCB);
-            return failureCB("Invalid arguments");
+            return failureCB(createError(consts.TYPE_MISMATCH_ERR, consts.TYPE_MISMATCH_ERR_MSG));
         }
         console.info("loadPackage  : " + pkgName);
         // Check if downloads directory exists
@@ -694,51 +776,54 @@ function proteusModManager() {
             fs.mkdirsRSync(PROTEUS_PATH, PERM);
         }
         // Download updates only the first call to load Pkg.
+        console.info("process.getModuleUpdates() " + process.getModuleUpdates());
         if (process.getModuleUpdates() === 0) {
             // Check and download updates (getVersions)
             downloadUpdates();
-            console.info("loadPackage  : " + pkgName + " delayed due to getVersion");
-            clearTimeoutfn = function () {
+            console.info("loadPackage  : " + pkgName + " delayed due to getVersion - Request for Update");
+            clearTimeoutfn = function() {
                 if (timerObj) {
                     clearTimeout(timerObj);
+                    timerObj = null;
                 }
             };
             // block the load pkg until getVersion returns
-            timerObj = setTimeout(function () {
+            timerObj = setTimeout(function() {
                 timerObj = null;
                 // remove the listener which listens to node destruction
                 process.removeListener('exit', clearTimeoutfn);
                 proteusModManager.prototype.loadPackage(pkgName, successCB, failureCB);
-            }, getProperty("Client-RetryTime"));
+            }, getProperty("clientRetryTime"));
             // if the request if being cancelled cleanup
             process.on('exit', clearTimeoutfn);
         } // else check if we have completed checking the version
         else if (process.getModuleUpdates() == 2) {
             // check is pkg and its dependencies are available else download it
-            getPackage(pkgName, function (result) {
+            getPackage(pkgName, function(result, err) {
                 if (result) {
                     console.info("loadPackage  :" + pkgName + " Return Success to client");
                     successCB();
                 } else {
                     console.info("loadPackage  :" + pkgName + " Return Failure to client");
-                    failureCB("Failed to download  :" + pkgName);
+                    failureCB(err);
                 }
             });
         } else {
             // block the load pkg until getVersion returns
             // function to clear timer if node is being destroyed
-            clearTimeoutfn = function () {
+            clearTimeoutfn = function() {
                 if (timerObj) {
                     clearTimeout(timerObj);
+                    timerObj = null;
                 }
             };
             console.info("loadPackage  : " + pkgName + "delayed due to getVersion");
-            timerObj = setTimeout(function () {
+            timerObj = setTimeout(function() {
                 timerObj = null;
                 // remove the listener which listens to node destruction
                 process.removeListener('exit', clearTimeoutfn);
                 proteusModManager.prototype.loadPackage(pkgName, successCB, failureCB);
-            }, getProperty("Client-RetryTime"));
+            }, getProperty("clientRetryTime"));
             // if the request if being cancelled cleanup
             process.on('exit', clearTimeoutfn);
         }

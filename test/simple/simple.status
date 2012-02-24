@@ -1,1 +1,189 @@
 prefix simple
+
+test-sendfd: SKIP
+test-delayed-require: SKIP
+test-signal-unregister: SKIP
+test-child-process-ipc: SKIP
+test-stdout-to-file: SKIP
+test-child-process-custom-fds: SKIP
+GH-892-request: SKIP
+test-net-isip: SKIP
+child-process-spawn-node: SKIP
+test-child-process-stdout-flush: SKIP
+test-init: SKIP
+test-pipe-head: SKIP
+test-repl: SKIP
+test-stdin-from-file: SKIP
+test-http-get-pipeline-problem: SKIP
+child-process-channel: SKIP
+test-require-cache-without-stat: SKIP
+test-module-loading: SKIP
+test-executable-path: SKIP
+test-http-full-response: SKIP
+test-process-env: SKIP
+test-require-resolve: SKIP
+test-child-process-exit-code: SKIP
+test-fs-symlink: SKIP
+test-cli-eval: SKIP
+test-error-reporting: SKIP
+test-debugger-client: SKIP
+test-child-process-exec-env: SKIP
+test-dgram-unix-anon: SKIP
+test-child-process-cwd: SKIP
+test-https-simple: SKIP
+test-child-process-double-pipe: SKIP
+test-http-304: SKIP
+test-tls-securepair-client: SKIP
+test-tls-securepair-server: SKIP
+test-sigint-infinite-loop: SKIP
+test-child-process-double-pipe: SKIP
+test-child-process-buffering: SKIP
+test-os: SKIP
+test-tls-server-verify: SKIP
+test-child-process-env: SKIP
+test-dgram-unix: SKIP
+test-child-process-exec-cwd: SKIP
+test-regress-GH-892: SKIP
+test-fs-realpath: SKIP
+test-http-curl-chunk-problem: SKIP
+test-tls-ext-key-usage: SKIP
+test-pipe-file-to-http: SKIP
+test-child-process-channel: SKIP
+test-child-process-spawn-node: SKIP
+test-child-process-kill: SKIP
+test-child-process-deprecated-api: SKIP
+test-process-kill-null: SKIP
+test-exec-max-buffer: SKIP
+
+#uses child process
+test-eval-require: SKIP
+
+# To be investigated
+test-http-unix-socket: SKIP
+test-fs-chmod: SKIP
+test-sys: SKIP
+test-tcp-wrap: SKIP
+test-net-pingpong: SKIP
+
+# Following fail in browser and not in android shell
+# AssertionError: 4 == 5
+test-next-tick: SKIP
+
+# this expects the setTimeout handler to be called even if exception
+# is thrown in later piece of code, but thats not working in browser
+test-exception-handler2: SKIP
+
+# this is expected, since we use browser console
+test-console: SKIP
+
+# TBI
+test-next-tick-ordering: SKIP
+
+#AssertionError: 0 == 74
+#    at Server.<anonymous> (/mnt/sdcard/test/simple/test-net-server-on-fd-0: SKIP:39:10)
+test-net-server-on-fd-0: SKIP
+
+#test-net-socket-timeout: SKIP, even though it passes, it doesnt hit the second timer TBI
+#test-signal-handler: SKIP, multiple process
+test-signal-handler: SKIP
+
+#AssertionError: ["nextTick","setTimeout"] deepEqual ["setTimeout","nextTick"], TBI
+#i guess this is since we use setTimeout from browser
+
+#TBI
+test-net-pingpong: SKIP
+test-fs-utimes: SKIP
+
+# we have blocked stdout
+test-tty-stdout-end: SKIP
+
+test-path: SKIP
+test-memory-usage: SKIP
+test-child-process-stdin: SKIP
+
+test-dgram-multicast: SKIP
+# TypeError: Object #<an EventEmitter> has no method 'cwd'
+test-chdir: SKIP
+
+# Error: ECONNREFUSED, Could not contact DNS servers
+test-c-ares: SKIP
+test-http-dns-fail: SKIP
+test-net-connect-timeout: SKIP
+test-regress-GH-819: SKIP
+
+# this is covered in other tests
+test-regression-object-prototype: SKIP
+
+test-umask: SKIP
+
+#**EXCEPTION: AssertionError: "first-priority-unsupported" ==
+#E/node    (31038):     at EventEmitter.<anonymous> (/data/data/com.android.browser/modules/proteus/test/simple/test-tls-npn-server-client: SKIP:93:10)
+test-tls-npn-server-client: SKIP
+
+# this puts a global.punycode which affects other tests
+test-punycode: SKIP
+
+# FIXME - watchers are not cleaned up
+test-http-set-trailers: SKIP
+test-http-upgrade-server2: SKIP
+test-http-exceptions: SKIP
+test-eio-race: SKIP
+
+# AssertionError: ["A","B"] deepEqual ["A","B","C"]
+test-next-tick-errors: SKIP
+
+# FIXME: AssertionError: {} === {}
+#    at testInjectFakeNativeModule (/local/mnt/workspace/ics/external/node/test/simple/test-require-cache: SKIP:42:10)
+test-require-cache: SKIP
+
+# run these tests independantly and not along with other tests since these have dependancies (e.g. http socket open)
+# ultimately we need to fix the bug why the tests dont cleanup the watchers..
+#test-http-extra-response: SKIP
+#test-http-head-request: SKIP
+#test-http-head-response-has-no-body: SKIP
+#test/simple/test-http-host-headers: SKIP
+#test-http-keep-alive-close-on-header: SKIP
+#test-tls-set-encoding: SKIP
+#test-tls-request-timeout: SKIP
+#test-tcp-wrap-listen: SKIP
+#test-stream-pipe-cleanup: SKIP
+#test-http-keep-alive: SKIP
+#test-http-malformed-request: SKIP
+#test-http-mutable-headers: SKIP
+#test-net-server-try-ports: SKIP
+#test-http-host-headers: SKIP
+#test-net-server-bind: SKIP
+#test-net-server-max-connections: SKIP
+#test-net-socket-timeout: SKIP
+#test-net-stream: SKIP
+#test-next-tick-ordering2: SKIP
+#test-http-parser: SKIP
+
+# takes too long to run (test individually)
+test-http-many-keep-alive-connections: SKIP
+test-stream-pipe-multi: SKIP
+test-fs-sir-writes-alot: SKIP
+test-pipe: SKIP
+test-url: SKIP
+test-https-agent: SKIP
+test-dgram-pingpong: SKIP
+test-net-server-max-connections: SKIP
+
+# zlib removed, unused
+test-zlib-from-gzip: SKIP
+test-zlib: SKIP
+
+# FIXME: these tests dont cleanup property affecting other tests in multi test run, disable for now
+test-http-expect-continue: SKIP
+test-net-remote-address-port: SKIP
+test-stream-pipe-cleanup: SKIP
+
+# > 4s
+test-http-buffer-sanity: SKIP
+test-net-binary: SKIP
+test-http-agent: SKIP
+test-net-reconnect: SKIP
+
+test-pump-file2tcp: SKIP
+
+test-exception-handler: SKIP

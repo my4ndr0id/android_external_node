@@ -1,13 +1,14 @@
 {
-  "proteusModLoader"  : {
-    "Server-URL" : "https://10.42.61.254" ,
-    "Server-Port" : "4000" ,
-    "Client-ConnTimeout" : 5000,
-    "Client-UpdatePeriod" : 1209600000,
-    "Client-RetryTime" : 2000,
-    "Client-CoreModulesUpgrade" : []
+  "mode": "local",
+  "modLoader"  : {
+    "serverURL" : "https://dapitest.quicinc.com",
+    "serverPort" : "443",
+    "clientConnTimeout" : 10000,
+    "clientUpdatePeriod" : 1209600000,
+    "clientRetryTime" : 500,
+    "clientCoreModulesUpgrade" : []
   },
-  "proteusPackageExtractor"  : {
-    "Public-Key"  : "-----BEGIN PUBLIC KEY-----MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDGCjNQJYL2XuI8VrXEswxzw5N4DgDLyaNncSGUMkG5vz/XSEYsXih2+tjn89gDvoddXqeuVrkqm/ufGSnj6DhaobiDsXatO4Gk2md+IOwJOl/CjdBs6MzmKY05MwLk1aguDltsF1tfuzdD5czwTBVd2beYm97fKfA1SJBXX59g+QIDAQAB-----END PUBLIC KEY-----"
+  "packageExtractor"  : {
+    "publicKey"  : "-----BEGIN PUBLIC KEY-----MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDGCjNQJYL2XuI8VrXEswxzw5N4DgDLyaNncSGUMkG5vz/XSEYsXih2+tjn89gDvoddXqeuVrkqm/ufGSnj6DhaobiDsXatO4Gk2md+IOwJOl/CjdBs6MzmKY05MwLk1aguDltsF1tfuzdD5czwTBVd2beYm97fKfA1SJBXX59g+QIDAQAB-----END PUBLIC KEY-----"
   }
 }

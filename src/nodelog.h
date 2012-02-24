@@ -73,7 +73,7 @@ int __android_log_print_wrap(int prio, const char *tag,  const char *fmt, ...);
 // some functions get invoked too many times (e.g. ev_invoke_pending), so logs for these are disabled by default
 // if you need to log those enable the following
 // #define LOG_MULTIPLE
-#if LOG_MULTIPLE
+#ifdef LOG_MULTIPLE
 #define NODE_LOGM(...) __android_log_print_wrap(ANDROID_LOG_VERBOSE, LOG_TAG_NODE, __VA_ARGS__);
 #else
 #define NODE_LOGM(...)
@@ -84,7 +84,6 @@ int __android_log_print_wrap(int prio, const char *tag,  const char *fmt, ...);
 
 // Disable asserts in release mode..
 #ifdef NDEBUG
-
 #define NODE_ASSERT(x) { \
   if (!(x)) {__android_log_print_wrap(ANDROID_LOG_ERROR, LOG_TAG_NODE, "%s, %s, %d, *** ASSERT *** \"%s\"", \
       __FILE__, __FUNCTION__, __LINE__, #x); }}

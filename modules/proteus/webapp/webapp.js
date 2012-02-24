@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011, Code Aurora Forum. All rights reserved.
+ * Copyright (c) 2012, Code Aurora Forum. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -13,7 +13,7 @@
  *     * Neither the name of Code Aurora Forum, Inc. nor the names of its
  *       contributors may be used to endorse or promote products derived
  *       from this software without specific prior written permission.
- *
+ * 
  * THIS SOFTWARE IS PROVIDED "AS IS" AND ANY EXPRESS OR IMPLIED
  * WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
  * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT
@@ -27,77 +27,17 @@
  * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef NODE_BRIDGE_H
-#define NODE_BRIDGE_H
+exports.callback = function() {
+  var args = arguments;
+  process.hostSetTimeout.call(null, function() {
+      if (args.length <= 4) { // 3 arguments, common case, fast path
+          args[0].call(null, args[1], args[2], args[3]);
+      } else { // slow case
+          var l = arguments.length;
+          var args_ = new Array(l - 1);
+          for (var i = 1; i < l; i++) args_[i - 1] = arguments[i];
+          args[0].apply(null, args_);
+      }
+  }, 0);
+}
 
-#ifdef __cplusplus
-
-#include <vector>
-#include <string>
-#include <v8.h>
-
-namespace node {
-
-// <NODE_EVENT>_<FEATURE>_<DESCRIPTION_OF_API>
-typedef enum {
-  NODE_EVENT_UNKNOWN,
-
-  // To be called from main thread
-  NODE_EVENT_FP_REGISTER_PRIVILEGED_FEATURES,
-  NODE_EVENT_FP_REQUEST_PERMISSION
-} NodeEventType;
-
-/* Feature permission events
-typedef struct {
-  std::vector<std::string>* features;
-} RegisterPrivilegedFeaturesEvent;
-*/
-
-typedef struct {
-  void *features;
-  void (*callback)(void *, bool);
-  void * context;
-} RequestPermissionEvent;
-
-
-typedef struct {
-  NodeEventType type;
-  union {
-    //RegisterPrivilegedFeaturesEvent RegisterPrivilegedFeaturesEvent_;
-    RequestPermissionEvent RequestPermissionEvent_;
-  } u;
-} NodeEvent;
-
-// node event handler (set by webkit)
-typedef void (*NodeEventHandlerType) (void* instance, NodeEvent*);
-
-///////////////////////////////////WEBKIT events to node//////////////////////////////
-typedef enum {
-  WEBKIT_EVENT_UNKNOWN,
-
-  // Called by webkit when browser goes out of focus
-  WEBKIT_EVENT_PAUSE,
-
-  // called by webkit when browser comes back to focus
-  WEBKIT_EVENT_RESUME,
-
-} WebKitEventType;
-
-typedef struct {
-  WebKitEventType type;
-  union {
-  } u;
-} WebKitEvent;
-
-/////////////////////////////////////Module ids///////////////////////
-typedef enum {
-  MODULE_UNKNOWN,
-  MODULE_FS,
-  MODULE_CAMERA
-} ModuleId;
-
-
-};
-
-#endif
-#endif
