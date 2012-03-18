@@ -24,7 +24,9 @@ LOCAL_C_INCLUDES += \
    bionic/libstdc++/include \
    $(LOCAL_PATH)/deps/uv/include \
    $(LOCAL_PATH)/deps/uv/src/ev \
-   $(LOCAL_PATH)/src
+   $(LOCAL_PATH)/src \
+   $(LOCAL_PATH)/include \
+   $(LOCAL_PATH)/include/module
 
 LOCAL_CFLAGS += \
   -DPROTEUS

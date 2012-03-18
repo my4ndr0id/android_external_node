@@ -156,7 +156,6 @@ def set_options(opt):
                 , dest='use_gdbjit'
                 )
 
-
   opt.add_option('--shared-cares'
                 , action='store_true'
                 , default=False
@@ -203,6 +202,13 @@ def set_options(opt):
                 , dest='dest_cpu'
                 )
 
+  opt.add_option('--libzipfile-path'
+                , action='store'
+                , default='../dapi/libzipfile'
+                , help='libzipfile path, path to your dapi/libzipfile'
+                , dest='libzipfile_path'
+                )
+
 def configure(conf):
   conf.check_tool('compiler_cxx')
   if not conf.env.CXX: conf.fatal('c++ compiler not found')
@@ -227,6 +233,12 @@ def configure(conf):
   conf.env["USE_SHARED_CARES"] = o.shared_cares or o.shared_cares_includes or o.shared_cares_libpath
 
   conf.env["USE_GDBJIT"] = o.use_gdbjit
+
+  # add libzipfile
+  if not os.path.exists(o.libzipfile_path):
+      conf.fatal('libzipfile path ' + o.libzipfile_path + ' invalid')
+
+  conf.env["LIBZIPFILE_PATH"] = o.libzipfile_path;
 
   conf.check(lib='dl', uselib_store='DL')
   if not sys.platform.startswith("sunos") and not sys.platform.startswith("cygwin") and not sys.platform.startswith("win32"):
@@ -626,8 +638,8 @@ def build_uv(bld):
   uv.env.env['CPPFLAGS'] = "-DPTW32_STATIC_LIB"
 
   # proteus:
-  uv.env.env['CPPFLAGS'] +=  " -I. -I../../../../src";
-
+  uv.env.env['CPPFLAGS'] +=  " -I. -I../../../../src -I../../../../include -I../../../../include/module";
+ 
   if bld.env['DEST_CPU']=='ia32':
     uv.env.env['CPPFLAGS'] +=  " -m32 "
 
@@ -885,12 +897,15 @@ def build(bld):
   node.source += " modules/proteus/proteusDeviceInfo/src/node_deviceinfo.cc "
 
   # libzipfile
-  node.source += " libzipfile/centraldir.cc "
-  node.source += " libzipfile/zipfile.cc "
+  node.source += bld.env['LIBZIPFILE_PATH'] + "/centraldir.cc "
+  node.source += bld.env['LIBZIPFILE_PATH'] + "/zipfile.cc "
 
   # memleak
   node.source += " memleak/memleak.cc "
 
+  # dapi
+  node.source += " src/dapi_inode.cc "
+  
   # desktop host
   if product_type == 'program':
      node.source += " src/main.cc "
@@ -899,15 +914,19 @@ def build(bld):
 
   if bld.env["USE_OPENSSL"]: node.source += " src/node_crypto.cc "
 
+  zipfilepath = bld.env['LIBZIPFILE_PATH']
   node.includes = """
+    include/
+    include/module
     src/
     deps/http_parser
     deps/uv/include
     deps/uv/src/ev
     deps/uv/src/ares
     memleak
-    libzipfile
   """
+
+  node.includes += bld.env['LIBZIPFILE_PATH']
 
   # proteus: link dependancy for sqlite
   bld.env.append_value('LINKFLAGS', '-lsqlite3');

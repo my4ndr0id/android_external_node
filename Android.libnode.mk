@@ -79,13 +79,15 @@ LOCAL_SRC_FILES := \
   deps/uv/src/uv-common.c \
   deps/uv/src/eio/eio.c \
   deps/uv/src/ev/ev.c \
-  deps/http_parser/http_parser.c
+  deps/http_parser/http_parser.c \
+  src/dapi_inode.cc
 
 LOCAL_CFLAGS += \
   -Wno-endif-labels \
   -Wno-import \
   -Wno-format \
   -fno-exceptions  \
+  -fvisibility=hidden \
   -D__POSIX__ \
   -DHAVE_MONOTONIC_CLOCK=1 \
   -DEV_FORK_ENABLE=0 \
@@ -95,7 +97,6 @@ LOCAL_CFLAGS += \
   -DEV_CONFIG_H=\"config_linux.h\"
 
 LOCAL_C_INCLUDES += \
-   bionic \
    external/connectivity/stlport/stlport \
    bionic/libc/include \
    bionic/libc/include/sys \
@@ -108,8 +109,8 @@ LOCAL_C_INCLUDES += \
    $(LOCAL_PATH)/src \
    $(LOCAL_PATH)/generated \
    $(LOCAL_PATH)/prebuilt \
-   bionic/libstdc++/include
-
+   $(LOCAL_PATH)/include \
+   $(LOCAL_PATH)/include/module
 
 LOCAL_STATIC_LIBRARIES := libcares
 LOCAL_SHARED_LIBRARIES := libcutils libdl libssl libcrypto libzipfile
@@ -132,7 +133,7 @@ endif
 # sqlite sync module
 # https://github.com/grumdrig/node-sqlite.git
 LOCAL_SRC_FILES += \
-  ../modules/sqlite-sync/sqlite3_bindings.cc
+  ../../node/modules/sqlite-sync/sqlite3_bindings.cc
 
 LOCAL_C_INCLUDES += \
   external/sqlite/dist

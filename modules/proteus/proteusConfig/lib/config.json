@@ -1,5 +1,4 @@
 {
-  "mode": "local",
   "modLoader"  : {
     "serverURL" : "https://dapitest.quicinc.com",
     "serverPort" : "443",

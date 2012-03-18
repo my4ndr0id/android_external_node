@@ -29,33 +29,35 @@
 
 #include "string.h"
 #include "stdlib.h"
-#include "node.h"
 #include "unistd.h"
 
+#include "dapi.h"
+#include "ev.h"
+
 using namespace v8;
-using namespace node;
+using namespace dapi;
 using namespace std;
 
-class NodeProxy : public NodeClient {
+class INodeProxy : public INodeClient, public INodeClientWebView {
   public:
-    NodeProxy() : m_node(0) {}
-    ~NodeProxy();
+    INodeProxy() : m_inode(0) {}
+    ~INodeProxy();
 
     void runInNodeContext(const char *module);
     void handleNodeEvents();
 
-    // NodeClient interface
-    void HandleNodeEvent(NodeEvent *) {}
     static void HandleInvokePending();
-    void OnDelete() {}
+
+    // INodeClient interface
+    bool queryInterface(Interface interface, void** object);
+
+    // WebView interface
     const char* url() { return ""; }
-    virtual NodeView* Unwrap(v8::Handle<v8::Object> object) { return 0; }
-    virtual Handle<Value> CreatePreviewNode(NodeSource* ) { return Handle<Value>(); }
-    virtual Handle<Value> CreateArrayBuffer(void*, int size) {return Handle<Value>();}
-    virtual const char* GetEnvironmentProperty(const char *prop, bool type) {return "";};
+    const char* getEnvironmentProperty(const char *prop, bool ) { return ""; }
+    void setScreenOrientationLock(const char *orientation){ }
 
   private:
-    Node *m_node;
+    INode *m_inode;
     Persistent<Context> m_context;
     bool m_testDone;
 };
@@ -79,12 +81,12 @@ class Host {
 
     // accessors
     struct ev_loop* loop() { return s_loop; }
-    vector<Node*>* nodes() { return &s_nodes; }
+    vector<INode*>* nodes() { return &s_nodes; }
 
   private:
     struct ev_loop* s_loop;
     ev_async s_asyncInvokePending;
-    vector<Node*> s_nodes;
+    vector<INode*> s_nodes;
 
     // singleton host instance
     static Host* s_instance;
@@ -104,7 +106,7 @@ void Host::handleInvokePendingEvThread() {
 
 void Host::handleInvokePendingMainThreadAsyncCb(EV_P_ ev_async *w, int revents) {
   NODE_LOGV("handleInvokePendingMainThreadAsyncCb");
-  Node::InvokePending();
+  INode::invokePending();
 }
 
 void Host::InvokePendingCB(EV_P) {
@@ -114,9 +116,11 @@ void Host::InvokePendingCB(EV_P) {
         ev_activecnt(si()->s_loop), ev_activecnt(ev_default_loop()));
 
     // send idle events to all active nodes..
-    vector<Node* >::iterator it = si()->s_nodes.begin();
+    vector<INode* >::iterator it = si()->s_nodes.begin();
     for (;it != si()->s_nodes.end(); it++) {
-      (*it)->EmitEvent("idle");
+      dapi::INodeEvents *events;
+      (*it)->queryInterface(dapi::INTERFACE_EVENTS, (void**)&events);
+      events->onIdle();
     }
     ev_break(si()->s_loop);
   }
@@ -129,7 +133,7 @@ void Host::handleNodeEvents() {
   NODE_LOGV("HOST: loop end");
 }
 
-void NodeProxy::runInNodeContext(const char *module) {
+void INodeProxy::runInNodeContext(const char *module) {
   NODE_LOGV("runInNodeContext, %s", module);
 
   HandleScope scope;
@@ -137,31 +141,39 @@ void NodeProxy::runInNodeContext(const char *module) {
     NODE_LOGV("runInNodeContext, creating Host context");
     m_context = Context::New();
     Context::Scope cscope(m_context);
-
-    // create node instance and populate navigator.loadModule
-    m_node = new Node(this);
-    si()->nodes()->push_back(m_node);
-    Handle<Object> navigator = Object::New();
-    navigator->Set(v8::String::New("loadModule"), m_node->GetLoadModule());
-    m_context->Global()->Set(v8::String::New("navigator"), navigator);
+    m_inode = new INode(this);
+    si()->nodes()->push_back(m_inode);
   }
 
-  Context::Scope csope(m_node->context());
-
-  TryCatch try_catch;
-  Local<Function> require = Local<Function>::New(m_node->GetRequire());
+  // require(module)
   Local<Value> args[1] = { String::New(module) };
-  require->Call(m_node->context()->Global(), 1, args);
-  if (try_catch.HasCaught()) {
-    Node::FatalException(try_catch, true);
+  dapi::INodeCore *core;
+  m_inode->queryInterface(dapi::INTERFACE_CORE, (void**)&core);
+  core->require(args);
+}
+
+INodeProxy::~INodeProxy() {
+  NODE_LOGV("~INodeProxy: %p", this);
+  if (m_inode) {
+    delete m_inode;
   }
 }
 
-NodeProxy::~NodeProxy() {
-  NODE_LOGV("~NodeProxy: %p", this);
-  if (m_node) {
-    delete m_node;
+bool INodeProxy::queryInterface(Interface interface, void** object) {
+  *object = 0;
+  switch (interface) {
+    case INTERFACE_WEBVIEW:
+      *object = static_cast<INodeClientWebView*>(this);
+      return true;
+
+    case INTERFACE_EVENTS:
+      return false; // Not Implemented
+
+    default:
+      NODE_LOGE("Interface %d not implemented", interface);
+      NODE_ASSERT_REACHABLE();
   }
+  return false;
 }
 
 int Host::init(int argc, char *argv[]) {
@@ -174,17 +186,16 @@ int Host::init(int argc, char *argv[]) {
   char cwd[256];
   getcwd(cwd, 256);
   NODE_LOGI("cwd = %s", cwd);
-  Node::Initialize(
+  INode::initialize(
       Host::handleInvokePendingEvThread, // InvokePending callback
       false, // not a browser
-      cwd, // download root dir
-      s_loop);
+      cwd); // download root dir
 
   // start the host watchers..
   ev_async_init(&s_asyncInvokePending, handleInvokePendingMainThreadAsyncCb);
   ev_async_start(s_loop, &s_asyncInvokePending);
 
-  NodeProxy proxy;
+  INodeProxy proxy;
   for (int i = 1; i <= argc-1; i++ ) {
     const char *arg = argv[i];
     if (!arg || arg[0] == '-') {
@@ -199,6 +210,6 @@ int Host::init(int argc, char *argv[]) {
 
 int main(int argc, char *argv[]) {
   Host::instance()->init(argc, argv);
-  return Node::ExitCode();
+  return INode::exitCode();
 }
 

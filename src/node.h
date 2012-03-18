@@ -53,33 +53,16 @@ extern "C" {
 
 #ifdef __cplusplus
 
-#include <pthread.h>
-#include <eio.h>
 #include <v8.h>
 #include <vector>
-#include <node_object_wrap.h>
-#include <nodelog.h>
-#include <node_bridge.h>
+#include "eio.h"
+#include "node_object_wrap.h"
+#include "dapi.h"
+#include "dapi_module.h"
 
 namespace node {
 
-class NodeView;
 class Node;
-class NodeSource : public ObjectWrap {
-  public:
-    NodeSource() : m_view(0) {}
-    virtual ~NodeSource(){}
-
-    virtual void SetView(NodeView *view) = 0;
-    virtual void SetPreviewTexture(void* texture) = 0;
-    virtual void Attach(NodeView*, void*) = 0;
-    virtual void Detach(NodeView*) = 0;
-
-    virtual NodeView *View() { return m_view; }
-
-  protected:
-    NodeView *m_view;
-};
 
 class Lock {
   public:
@@ -101,19 +84,11 @@ class Lock {
     Node* s_node;
 };
 
-class NodeView {
-  public:
-    NodeView() : m_source(0) {}
-    virtual ~NodeView(){}
-    virtual void SetSource(NodeSource *source) = 0;
-    virtual void UpdatePreviewFrame(const char* buf, int bufsize,
-        int width, int height, int orientation) = 0;
-    virtual NodeSource* Source() { return m_source; }
-    virtual bool IsCamera() { return false; }
-
-  protected:
-    NodeSource *m_source;
-};
+typedef enum {
+  MODULE_UNKNOWN,
+  MODULE_FS,
+  MODULE_CAMERA
+} ModuleId;
 
 /**
  * Interface to be implemented by modules interested in getting events
@@ -123,21 +98,6 @@ class NodeModule {
   public:
     virtual ~NodeModule() {}
     virtual ModuleId Module() = 0;
-};
-
-/*
- * Interface to be implemented by node clients e.g. browser
- */
-class NodeClient {
-  public:
-    virtual ~NodeClient() {}
-    virtual void HandleNodeEvent(NodeEvent*) = 0;
-    virtual void OnDelete() = 0;
-    virtual const char* url() = 0;
-    virtual NodeView* Unwrap(v8::Handle<v8::Object> object) = 0;
-    virtual v8::Handle<v8::Value> CreatePreviewNode(NodeSource *) = 0;
-    virtual v8::Handle<v8::Value> CreateArrayBuffer(void *buf, int size) = 0;
-    virtual const char* GetEnvironmentProperty(const char *prop, bool ) = 0;
 };
 
 class StopWatch {
@@ -161,7 +121,9 @@ enum encoding {ASCII, UTF8, BASE64, UCS2, BINARY, HEX};
  * Represents a node instance, there is one for each browser context
  * Gets created when the webpage loads a module through navigator.loadModule
  */
-class Node {
+class Node :
+  public dapi::INodeCore,
+  public dapi::INodeEvents {
   public:
     /**
      * Creates a node instance, initializes it and loads it.
@@ -170,7 +132,7 @@ class Node {
      * (node.js, buffer.js, module.js, fs.js etc)
      * @param client Handle to browser, used for sending events
      */
-    Node(NodeClient *client);
+    Node(dapi::INode *inode);
 
     /**
      * Destroys the node instance, triggered by embedder when page is navigated out
@@ -184,13 +146,7 @@ class Node {
      * @param isBrowser specifies if client is a browser or a shell
      * @param moduleRootPath Root directory specified by client for installing downloaded modules
      */
-    static void Initialize(void (*clientcb)(), bool isBrowser, const char* moduleRootPath, struct ev_loop *hostLoop = 0);
-
-    /**
-     * Node client
-     * @return returns the client handle, used to send events to the client
-     */
-    NodeClient* client() { return m_client; }
+    static void Initialize(void (*clientcb)(), bool isBrowser, const char* moduleRootPath);
 
     /**
      * Invoked by the client on the main thread to process pending libev events
@@ -199,32 +155,12 @@ class Node {
     static void InvokePending();
 
     /**
-     * Called by the browser when the current page goes out of focus, either
-     * user has switched to a new tab or browser has gone to background
-     */
-    void Pause();
-
-    /**
-     * Called by the browser when the page associated with this node comes in focus, either
-     * user has switched to this tab or browser has come to foreground with this tab in focus
-     */
-    void Resume();
-
-    /**
      * Get handle to loadModule function in the current node context
      * this will be set as window.navigator.loadModule by the client
      * @return handle to the loadModule function in node context
      */
     v8::Handle<v8::Function> GetLoadModule();
     v8::Handle<v8::Function> GetRequire();
-
-    /**
-     * This invokes loadModule in node's context. This function also
-     * places try catch blocks around the call to catch any errors for test reporting
-     * @param args module to load
-     * @return Reference to the module after loading it
-     */
-    v8::Handle<v8::Value> LoadModule(const v8::Arguments& args);
 
     /**
      * This can be used to emit custom events from native code,
@@ -248,11 +184,11 @@ class Node {
     v8::Handle<v8::Context> context() { return m_context; }
 
     /**
-     * Retreive the node instance from the process object, stored in slot 0
+     * Retreive the node instance from the object
      * @param process process object
      * @return node instance for the given process
      */
-    static Node* GetNode(v8::Handle<v8::Object> process);
+    static Node* GetNodeFromObject(v8::Handle<v8::Object> o);
 
     /**
      * Executes the given string in node context
@@ -263,14 +199,9 @@ class Node {
     static v8::Local<v8::Value> ExecuteString(v8::Handle<v8::String> source,
         v8::Handle<v8::Value> filename);
 
-    /**
-     * Test API
-     * Called by the client after the node indicates an update in test api
-     * reports status for one or more tests
-     */
-    static void FatalException(v8::TryCatch &try_catch, bool isHost = false);
-    static void DisplayExceptionLine(v8::TryCatch &try_catch);
-    void ReportException(v8::TryCatch &try_catch, bool show_line);
+    static void FatalException(v8::TryCatch &try_catch);
+    static void DisplayExceptionLine(v8::TryCatch &try_catch); 
+    static void ReportException(v8::TryCatch &try_catch, bool show_line);
 
     /* thread checks */
     static bool IsMainThread();
@@ -300,26 +231,14 @@ class Node {
     static v8::Local<v8::Value> Encode(const void *buf, size_t len,
                             enum encoding encoding = BINARY);
 
-    /**
-     * structure used to register a native module to node,
-     * the module could be a builtin (e.g. node_fs) or dynamic .so)
-     */
-    struct node_module_struct {
-      int version;
-      void *dso_handle;
-      const char *filename;
-      void (*register_func) (v8::Handle<v8::Object> target);
-      const char *modname;
-    };
-
     static node_module_struct*
       get_builtin_module(const char *name);
 
     // js/native traces
-    static void PrintJSStackTrace(android_LogPriority pri = ANDROID_LOG_WARN);
+    static void PrintJSStackTrace(DAPILogPriority pri = DAPI_LOG_WARN);
 
 #ifndef ANDROID // only supported on desktop for now..
-    static void PrintNativeStackTrace(android_LogPriority pri = ANDROID_LOG_WARN);
+    static void PrintNativeStackTrace(DAPILogPriority pri = DAPI_LOG_WARN);
     static std::string AddressToString(void *addr);
 #endif
 
@@ -329,11 +248,35 @@ class Node {
     // return exit code for test.py
     static int ExitCode();
 
-  private:
+    dapi::INodeClient* client() { return m_inode->client(); }
+    dapi::INode* inode() { return m_inode; }
+
     void Init();
     void SetupProcessObject();
     void Load(); // load all builtin modules in current context
     void Tick();
+
+    static void setINodeInObject(v8::Handle<v8::Object> o, dapi::INode *inode);
+
+    // INodeEvents
+    void onPause();
+    void onResume();
+    void onIdle();
+
+    // INodeCore
+
+    /**
+     * This invokes loadModule in node's context. This function also
+     * places try catch blocks around the call to catch any errors for test reporting
+     * @param args module to load
+     * @return Reference to the module after loading it
+     */
+    v8::Handle<v8::Value> loadModule(v8::Handle<v8::Value>* args);
+    v8::Handle<v8::Value> require(v8::Handle<v8::Value>* args);
+    v8::Handle<v8::Context> inodeContext() { return m_context; }
+    v8::Handle<v8::Context> inodeClientContext() { return m_browserContext; }
+
+  private:
 
     /**
      * Runs an javascript string in service node context
@@ -364,62 +307,12 @@ class Node {
     // watcher for timeouts
     uv_timer_t  m_test_timeout_watcher;
 
-    // NodeClient (e.g. webkit node proxy)
-    NodeClient *m_client;
+    // INodeClient (e.g. webkit node proxy)
+    dapi::INode *m_inode;
 
     friend class NodeStatic;
 };
 
-#define NODE_PSYMBOL(s) Persistent<String>::New(String::NewSymbol(s))
-
-/* Converts a unixtime to V8 Date */
-#define NODE_UNIXTIME_V8(t) Date::New(1000*static_cast<double>(t))
-#define NODE_V8_UNIXTIME(v) (static_cast<double>((v)->NumberValue())/1000.0);
-
-#define NODE_DEFINE_CONSTANT(target, constant)                            \
-  (target)->Set(String::NewSymbol(#constant),                             \
-                Integer::New(constant),                                   \
-                static_cast<PropertyAttribute>(ReadOnly|DontDelete))
-
-#define NODE_SET_METHOD(obj, name, callback)                              \
-  obj->Set(String::NewSymbol(name),                                       \
-           FunctionTemplate::New(callback)->GetFunction())
-
-#define NODE_SET_PROTOTYPE_METHOD(templ, name, callback)                  \
-do {                                                                      \
-  v8::Local<Signature> __callback##_SIG = Signature::New(templ);          \
-  v8::Local<FunctionTemplate> __callback##_TEM =                          \
-    FunctionTemplate::New(callback, v8::Handle<v8::Value>(),              \
-                          __callback##_SIG);                              \
-  templ->PrototypeTemplate()->Set(String::NewSymbol(name),                \
-                                  __callback##_TEM);                      \
-} while (0)
-
-/**
- * When this version number is changed, node.js will refuse
- * to load older modules.  This should be done whenever
- * an API is broken in the C++ side, including in v8 or
- * other dependencies
- */
-#define NODE_MODULE_VERSION (1)
-#define NODE_STANDARD_MODULE_STUFF \
-   NODE_MODULE_VERSION, NULL, __FILE__
-
-#ifndef NODE_STRINGIFY
-#define NODE_STRINGIFY(n) NODE_STRINGIFY_HELPER(n)
-#define NODE_STRINGIFY_HELPER(n) #n
-#endif
-
-#define NODE_MODULE(modname, regfunc)                    \
-  node::Node::node_module_struct modname ## _module =    \
-  {                                                      \
-      NODE_STANDARD_MODULE_STUFF,                        \
-      regfunc,                                           \
-      NODE_STRINGIFY(modname)                            \
-  };
-
-#define NODE_MODULE_DECL(modname) \
-  extern node::Node::node_module_struct modname ## _module;
 
 v8::Local<v8::Value> ErrnoException(int errorno, const char *syscall = NULL,
     const char *msg = "", const char *path = NULL);

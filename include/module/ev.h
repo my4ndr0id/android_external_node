@@ -46,6 +46,8 @@
 # define EV_CPP(x)
 #endif
 
+#define DAPIEXPORT __attribute__ ((visibility("default")))
+
 EV_CPP(extern "C" {)
 
 /*****************************************************************************/
@@ -536,7 +538,7 @@ void ev_set_syserr_cb (void (*cb)(const char *msg));
 
 /* the default loop is the only one that handles signals and child watchers */
 /* you can call this as often as you like */
-struct ev_loop *ev_default_loop (unsigned int flags EV_CPP (= 0));
+DAPIEXPORT struct ev_loop *ev_default_loop (unsigned int flags EV_CPP (= 0));
 
 EV_INLINE struct ev_loop *
 ev_default_loop_uc_ (void)
@@ -553,7 +555,7 @@ ev_is_default_loop (EV_P)
 }
 
 /* create and destroy alternative loops that don't handle signals */
-struct ev_loop *ev_loop_new (unsigned int flags EV_CPP (= 0));
+DAPIEXPORT struct ev_loop *ev_loop_new (unsigned int flags EV_CPP (= 0));
 
 ev_tstamp ev_now (EV_P); /* time w.r.t. timers and the eventloop, updated after each poll */
 
@@ -614,8 +616,8 @@ enum {
 };
 
 #if EV_PROTOTYPES
-void ev_run (EV_P_ int flags EV_CPP (= 0));
-void ev_break (EV_P_ int how EV_CPP (= EVBREAK_ONE)); /* break out of the loop */
+DAPIEXPORT void ev_run (EV_P_ int flags EV_CPP (= 0));
+DAPIEXPORT void ev_break (EV_P_ int how EV_CPP (= EVBREAK_ONE)); /* break out of the loop */
 
 /*
  * ref/unref can be used to add or remove a refcount on the mainloop. every watcher
@@ -642,11 +644,11 @@ void ev_set_timeout_collect_interval (EV_P_ ev_tstamp interval); /* sleep at lea
 /* advanced stuff for threading etc. support, see docs */
 void ev_set_userdata (EV_P_ void *data);
 void *ev_userdata (EV_P);
-void ev_set_invoke_pending_cb (EV_P_ void (*invoke_pending_cb)(EV_P));
+DAPIEXPORT void ev_set_invoke_pending_cb (EV_P_ void (*invoke_pending_cb)(EV_P));
 void ev_set_loop_release_cb (EV_P_ void (*release)(EV_P), void (*acquire)(EV_P));
 
 unsigned int ev_pending_count (EV_P); /* number of pending events, if any */
-void ev_invoke_pending (EV_P); /* invoke all pending watchers */
+DAPIEXPORT void ev_invoke_pending (EV_P); /* invoke all pending watchers */
 
 /*
  * stop/start the timer handling.
@@ -795,9 +797,9 @@ void ev_embed_sweep    (EV_P_ ev_embed *w);
 # endif
 
 # if EV_ASYNC_ENABLE
-void ev_async_start    (EV_P_ ev_async *w);
-void ev_async_stop     (EV_P_ ev_async *w);
-void ev_async_send     (EV_P_ ev_async *w);
+DAPIEXPORT void ev_async_start    (EV_P_ ev_async *w);
+DAPIEXPORT void ev_async_stop     (EV_P_ ev_async *w);
+DAPIEXPORT void ev_async_send     (EV_P_ ev_async *w);
 # endif
 
 #if EV_COMPAT3
@@ -823,7 +825,7 @@ void ev_async_send     (EV_P_ ev_async *w);
 
 #endif
 
-int ev_activecnt(EV_P);
+DAPIEXPORT int ev_activecnt(EV_P);
 
 EV_CPP(})
 

@@ -197,8 +197,7 @@ EV_CPP(extern "C" {)
 # undef EV_AVOID_STDIO
 #endif
 
-// proteus:
-#include "nodelog.h"
+// dapi:
 #include "node.h"
 
 /* OS X, in its infinite idiocy, actually HARDCODES
@@ -209,8 +208,8 @@ EV_CPP(extern "C" {)
  */
 #define _DARWIN_UNLIMITED_SELECT 1
 
-/* this block tries to deduce configuration from header-defined symbols and defaults */
 
+/* this block tries to deduce configuration from header-defined symbols and defaults */
 /* try to deduce the maximum number of signals on this platform */
 #if defined (EV_NSIG)
 /* use what's provided */
@@ -2151,7 +2150,6 @@ ev_invoke_pending (EV_P)
         ANPENDING *p = pendings [pri] + --pendingcnt [pri];
 
         p->w->pending = 0;
-        NODE_LOGM("WATCHERS: ev_invoke_pending, p=%p w=%p cb=%p", p, p->w, p->w->cb);
         EV_CB_INVOKE (p->w, p->events);
         EV_FREQUENT_CHECK;
       }
@@ -2405,13 +2403,10 @@ ev_run (EV_P_ int flags)
 
   loop_done = EVBREAK_CANCEL;
 
-  NODE_LOGM("ev_run, before, activecnt = %d pendingcnt = %d", activecnt, ev_pending_count(EV_A));
-
   EV_INVOKE_PENDING; /* in case we recurse, ensure ordering stays nice and clean */
 
   do
     {
-      NODE_LOGM("ev_run, in, activecnt = %d", activecnt);
 
 #if EV_VERIFY >= 2
       ev_verify (EV_A);

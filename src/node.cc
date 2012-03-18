@@ -58,12 +58,12 @@
 #include "memleak.h"
 
 #define LOG_WATCHERS 0
-#define PROTEUS_VERSION "0.0.1"
 
 namespace node {
 
 using namespace v8;
 using namespace std;
+using namespace dapi;
 
 
 class NodeStatic {
@@ -72,12 +72,12 @@ class NodeStatic {
       return s_instance;
     }
 
-    static void create(void (*clientCallback)(), bool isBrowser, const char* moduleRootPath, struct ev_loop* hostLoop) {
+    static void create(void (*clientCallback)(), bool isBrowser, const char* moduleRootPath) {
       NODE_ASSERT(!s_instance);
-      s_instance = new NodeStatic(clientCallback, isBrowser, moduleRootPath, hostLoop);
+      s_instance = new NodeStatic(clientCallback, isBrowser, moduleRootPath);
     }
 
-    NodeStatic(void (*clientCallback)(), bool isBrowser, const char* moduleRootPath, struct ev_loop* hostLoop);
+    NodeStatic(void (*clientCallback)(), bool isBrowser, const char* moduleRootPath);
     static NodeStatic* s_instance;
 
     // idle watcher for triggering another eio_poll
@@ -227,7 +227,7 @@ class NodeStatic {
 
     // print stack from js code e.g. test.stack();
     static v8::Handle<v8::Value> TestStack(const v8::Arguments& args);
-    android_LogPriority StringToLog(const char* log);
+    DAPILogPriority StringToLog(const char* log);
 
     // initiliaze logging
     void ReadDebugLevel();
@@ -240,10 +240,6 @@ class NodeStatic {
     // dump watcher stats from javascript
     // JS API - test.watcherStats();
     static v8::Handle<v8::Value> TestWatcherStats(const v8::Arguments& args);
-
-    // retreive the node instance from the process/test object internal field
-    static Node* GetNodeFromProcess(v8::Handle<v8::Object> process);
-    static Node* GetNodeFromTest(v8::Handle<v8::Object> test);
 
     // Used to print stack trace during an exception
     void ReportException(v8::TryCatch &try_catch, bool show_line);
@@ -281,7 +277,6 @@ class NodeStatic {
     std::map<ev_watcher*, int> s_watchers;
     bool s_memLeak;
 
-    struct ev_loop* s_hostLoop;
     int s_exitCode;
 
     friend class Node;
@@ -299,16 +294,10 @@ static inline v8::Local<v8::Number> v8_num(double d) {
   return v8::Number::New(d);
 }
 
-Node* NodeStatic::GetNodeFromProcess(Handle<Object> process) {
-  Node *n = static_cast<Node*>(process->GetPointerFromInternalField(0));
-  NODE_ASSERT(n);
-  return n;
-}
-
-Node* NodeStatic::GetNodeFromTest(Handle<Object> test) {
-  Node *n = static_cast<Node*>(test->GetPointerFromInternalField(0));
-  NODE_ASSERT(n);
-  return n;
+Node* Node::GetNodeFromObject(Handle<Object> o) {
+  INode *inode = INode::getINodeFromObject(o);
+  NODE_ASSERT(inode && inode->m_node);
+  return inode->m_node;
 }
 
 void Node::Tick(void) {
@@ -357,7 +346,7 @@ Handle<Value> NodeStatic::NeedTickCallback(const Arguments& args) {
   NODE_LOGF();
   HandleScope scope;
 
-  Node *n = GetNodeFromProcess(args.Holder());
+  Node *n = Node::GetNodeFromObject(args.Holder());
   n->m_need_tick_cb = true;
   // TODO: this tick_spinner shouldn't be necessary. An ev_prepare should be
   // sufficent, the problem is only in the case of the very last "tick" -
@@ -862,24 +851,15 @@ Handle<Value> NodeStatic::DLOpen(const Arguments& args) {
   }
 
   // Get the init() function from the dynamically shared object.
-  Node::node_module_struct *mod = static_cast<Node::node_module_struct *>(dlsym(handle, symstr));
+  node_module_struct *mod = static_cast<node_module_struct *>(dlsym(handle, symstr));
   free(symstr);
-  // Error out if not found.
-  if (mod == NULL) {
-    /* Start Compatibility hack: Remove once everyone is using NODE_MODULE macro */
-    Node::node_module_struct compat_mod;
-    mod = &compat_mod;
-    mod->version = NODE_MODULE_VERSION;
 
-    void *init_handle = dlsym(handle, "init");
-    if (init_handle == NULL) {
-      dlclose(handle);
-      Local<Value> exception =
-        Exception::Error(String::New("No module symbol found in module."));
-      return ThrowException(exception);
-    }
-    mod->register_func = (extInit)(init_handle);
-    /* End Compatibility hack */
+  // DAPI: Enforce module and node compatibility
+  if (mod == NULL) {
+    dlclose(handle);
+    Local<Value> exception =
+      Exception::Error(String::New("No module symbol found in module."));
+    return ThrowException(exception);
   }
 
   if (mod->version != NODE_MODULE_VERSION) {
@@ -943,20 +923,19 @@ void NodeStatic::FatalException(TryCatch &try_catch) {
   }
 
   HandleScope scope;
-  Local<Context> context;
-  if (v8::Context::InContext()) {
-    context = v8::Context::GetCurrent();
-  } else if (si()->s_nodes.size() > 0) {
-    context = Local<Context>::New(si()->s_nodes[0]->m_context);
-  } else {
+  if (!v8::Context::InContext()) {
+    NODE_LOGW("FatalException: Not in context, fixme");
     si()->ReportException(try_catch, false);
     return;
   }
 
+  Local<Context> context = Context::GetCurrent();
   Context::Scope context_scope(context);
-  Local<Object> prototype = context->Global()->GetPrototype()->ToObject();
-  Node *n = static_cast<Node*>(prototype->GetPointerFromInternalField(0));
+  Node *n = Node::GetNodeFromObject(
+      context->Global()->GetPrototype()->ToObject());
+
   NODE_ASSERT(n);
+  NODE_ASSERT(!n->m_process.IsEmpty());
   if (!n || !n->m_process->IsObject()) {
     si()->ReportException(try_catch, false);
     return;
@@ -999,12 +978,8 @@ void NodeStatic::FatalException(TryCatch &try_catch) {
   uncaught_exception_counter--;
 }
 
-void Node::FatalException(TryCatch &try_catch, bool isHost) {
-  if (isHost) {
-    si()->ReportException(try_catch, true);
-  } else {
-    si()->FatalException(try_catch);
-  }
+void Node::FatalException(TryCatch &try_catch) {
+  si()->FatalException(try_catch);
 }
 
 Handle<Value> NodeStatic::CreateExportsObject(const Arguments& args) {
@@ -1016,19 +991,19 @@ Handle<Value> NodeStatic::CreateExportsObject(const Arguments& args) {
   exports = exports_template->GetFunction()->NewInstance();
 
   // proteus: slot 1 to be filled by the module with the native module object
-  exports->SetPointerInInternalField(0, GetNodeFromProcess(args.Holder()));
+  Node::setINodeInObject(exports, INode::getINodeFromObject(args.Holder()));
   return scope.Close(exports);
 }
 
 Handle<Value> NodeStatic::TestDeleteNode(const Arguments& args) {
-  Node *n = GetNodeFromProcess(args.Holder());
+  Node *n = Node::GetNodeFromObject(args.Holder());
   delete n;
   return Undefined();
 }
 
 Handle<Value> NodeStatic::AcquireLock(const Arguments& args) {
   NODE_ASSERT(args.Length() > 0 && args[0]->IsFunction());
-  Node *n = GetNodeFromProcess(args.Holder());
+  Node *n = Node::GetNodeFromObject(args.Holder());
   Persistent<Function> acquireLockJSCallback = Persistent<Function>::New(Local<Function>::Cast(args[0]));
   Lock *lockInstance  = new Lock(n, acquireLockJSCallback);
   si()->s_lockList.push_back(lockInstance);
@@ -1092,68 +1067,14 @@ Handle<Value> NodeStatic::SetModuleUpdates(const Arguments& args) {
   }
 }
 
-
-Handle<Value> NodeStatic::RegisterPermissionFeatures(const Arguments& args) {
-  NODE_LOGD("Node::RegisterPermissionFeatures");
-  vector<string> featureList;
-  v8::Local<v8::Array> nodeEventFeaturesList = v8::Local<v8::Array>::Cast(args[0]);
-
-  for(unsigned int i = 0; i < nodeEventFeaturesList->Length(); i++) {
-    String::AsciiValue featureName(nodeEventFeaturesList->Get(i)->ToString());
-    featureList.push_back(string(*featureName));
-  }
-
-  // Get the current node instance
-  Node *n = GetNodeFromProcess(args.Holder());
-  NODE_ASSERT(n);
-  NODE_ASSERT(n->client());
-
-  // Enter browser context
-  Context::Scope cscope(n->m_browserContext);
-  NodeEvent e;
-  e.type = NODE_EVENT_FP_REGISTER_PRIVILEGED_FEATURES;
-  //e.u.RegisterPrivilegedFeaturesEvent_.features = &featureList;
-  n->client()->HandleNodeEvent(&e);
-  return Boolean::New(true);
-}
-
-Handle<Value> NodeStatic::RequestPermission(const Arguments& args) {
-  NODE_LOGF();
-
-  // Get the current node instance
-  Node *n = GetNodeFromProcess(args.Holder());
-  NODE_ASSERT(n);
-
-  // Get to window.navigator.navigatorPermissions
-  Context::Scope cscope(n->m_browserContext);
-  Handle<Object> browserGlobal = n->m_browserContext->Global();
-  NODE_ASSERT(!browserGlobal.IsEmpty());
-
-  Handle<Value> navigator = browserGlobal->Get(String::NewSymbol("navigator"));
-  NODE_ASSERT(navigator->IsObject());
-
-  Handle<Value> navigatorPermissionsV = navigator->ToObject()->Get(String::NewSymbol("navigatorPermissions"));
-  NODE_ASSERT(navigatorPermissionsV->IsObject());
-  Handle<Object> navigatorPermissions = navigatorPermissionsV->ToObject();
-
-  // navigatorPermissions.requestPermission
-  Handle<Value> requestPermissionV = navigatorPermissions->Get(String::NewSymbol("requestPermission"));
-  NODE_ASSERT(requestPermissionV->IsFunction());
-
-  Handle<Function> requestPermission = Handle<Function>::Cast(requestPermissionV);
-  Local<Value> args_[] = { args[0], args[1] };
-
-  return requestPermission->Call(navigatorPermissions, 2, args_);
-}
-
 Handle<Value> NodeStatic::HasBinding(const Arguments& args) {
   HandleScope scope;
 
   Local<String> module = args[0]->ToString();
   String::Utf8Value module_v(module);
 
-  Node::node_module_struct* modp;
-  Node *n = GetNodeFromProcess(args.Holder());
+  node_module_struct* modp;
+  Node *n = Node::GetNodeFromObject(args.Holder());
   bool hasBinding = false;
   if (n->m_bindingCache->Has(module)) {
     hasBinding = true;
@@ -1164,19 +1085,19 @@ Handle<Value> NodeStatic::HasBinding(const Arguments& args) {
   return scope.Close(v8::Boolean::New(hasBinding));
 }
 
-void Node::PrintJSStackTrace(android_LogPriority pri) {
-  __android_log_print_wrap(pri, LOG_TAG_NODE, "=== <js trace>");
+void Node::PrintJSStackTrace(DAPILogPriority pri) {
+  DAPILog(pri, LOG_TAG_NODE, "=== <js trace>");
   HandleScope scope;
   Handle<StackTrace> stackTrace = StackTrace::CurrentStackTrace(20, StackTrace::kDetailed);
   for (int i = 0; i < stackTrace->GetFrameCount(); i++) {
     Local<StackFrame> frame = stackTrace->GetFrame(i);
     String::Utf8Value function(frame->GetFunctionName());
     String::Utf8Value source(frame->GetScriptNameOrSourceURL());
-    __android_log_print_wrap(pri, LOG_TAG_NODE, "#%02d in %s (%s:%d)",
-        i, function.length() == 0 ? "<>" : *function,
+    DAPILog(pri, LOG_TAG_NODE, "#%02d in %s (%s:%d)", 
+        i, function.length() == 0 ? "<>" : *function, 
         source.length() == 0 ? "<> " : *source, frame->GetLineNumber());
   }
-  __android_log_print_wrap(pri, LOG_TAG_NODE, "===");
+  DAPILog(pri, LOG_TAG_NODE, "===");
 }
 
 void Node::WeakCallback(Persistent<Value> value, void *data) {
@@ -1194,10 +1115,10 @@ Handle<Value> NodeStatic::Binding(const Arguments& args) {
 
   Local<String> module = args[0]->ToString();
   String::Utf8Value module_v(module);
-  Node::node_module_struct* modp;
+  node_module_struct* modp;
   NODE_LOGD("%s, loading module (%s)", __FUNCTION__, *module_v);
 
-  Node *n = GetNodeFromProcess(args.Holder());
+  Node *n = Node::GetNodeFromObject(args.Holder());
   if (n->m_bindingCache.IsEmpty()) {
     n->m_bindingCache = Persistent<Object>::New(Object::New());
   }
@@ -1213,7 +1134,7 @@ Handle<Value> NodeStatic::Binding(const Arguments& args) {
     Local<FunctionTemplate> exports_template = FunctionTemplate::New();
     exports_template->InstanceTemplate()->SetInternalFieldCount(2);
     exports = exports_template->GetFunction()->NewInstance();
-    exports->SetPointerInInternalField(0, GetNodeFromProcess(args.Holder()));
+    Node::setINodeInObject(exports, INode::getINodeFromObject(args.Holder()));
     modp->register_func(exports);
     n->m_bindingCache->Set(module, exports);
     NODE_LOGD("loaded core native module (%s) in node (%p)", *module_v, n);
@@ -1252,7 +1173,7 @@ Handle<Value> NodeStatic::ProcessLog(const Arguments& args) {
   NODE_ASSERT(args[0]->IsNumber());
   NODE_ASSERT(args[1]->IsString());
   String::AsciiValue message(args[1]);
-  __android_log_print_wrap(args[0]->ToNumber()->Value(), "node-js", *message);
+  DAPILog(args[0]->ToNumber()->Value(), "node-js", *message);
   return Undefined();
 }
 
@@ -1266,8 +1187,8 @@ Handle<Value> NodeStatic::TestSleep(const Arguments &args) {
 
 Handle<Value> NodeStatic::TestContext(const Arguments &args) {
   HandleScope scope;
-  Node *n = GetNodeFromTest(args.Holder());
-  NODE_LOGW("CONTEXT: %s", args[0]->ToObject()->CreationContext() == n->m_context ?
+  Node *n = Node::GetNodeFromObject(args.Holder());
+  NODE_LOGW("CONTEXT: %s", args[0]->ToObject()->CreationContext() == n->m_context ? 
       "NodeContext" : "UnknownContext");
   return Handle<Value>();
 }
@@ -1437,7 +1358,7 @@ v8::Handle<v8::Value> NodeStatic::ReallyExit(const v8::Arguments& args) {
 
 Handle<Value> NodeStatic::TestBreak(const Arguments& args) {
   NODE_LOGF();
-  Node::PrintJSStackTrace(ANDROID_LOG_WARN);
+  Node::PrintJSStackTrace(DAPI_LOG_WARN);
   raise(SIGTRAP);
   return Handle<Value>();
 }
@@ -1454,7 +1375,7 @@ Handle<Value> NodeStatic::TestRunScript(const Arguments& args) {
 Handle<Value> NodeStatic::EnterBrowserContext(const Arguments& args) {
   NODE_LOGF();
   HandleScope scope;
-  Node *n = GetNodeFromProcess(args.Holder());
+  Node *n = Node::GetNodeFromObject(args.Holder());
   n->m_browserContext->Enter();
   NODE_ASSERT(Context::GetCurrent() == n->m_browserContext);
   return Undefined();
@@ -1463,7 +1384,7 @@ Handle<Value> NodeStatic::EnterBrowserContext(const Arguments& args) {
 Handle<Value> NodeStatic::ExitBrowserContext(const Arguments& args) {
   NODE_LOGF();
   HandleScope scope;
-  Node *n = GetNodeFromProcess(args.Holder());
+  Node *n = Node::GetNodeFromObject(args.Holder());
   n->m_browserContext->Exit();
   NODE_ASSERT(Context::GetCurrent() == n->m_context);
   return Handle<Value>();
@@ -1488,12 +1409,12 @@ void Node::SetupProcessObject() {
   Local<FunctionTemplate> process_template = FunctionTemplate::New();
   process_template->InstanceTemplate()->SetInternalFieldCount(1);
   m_process = Persistent<Object>::New(process_template->GetFunction()->NewInstance());
-  m_process->SetPointerInInternalField(0, this);
+  setINodeInObject(m_process, m_inode);
 
   Local<FunctionTemplate> test_template = FunctionTemplate::New();
   test_template->InstanceTemplate()->SetInternalFieldCount(1);
   m_test = Persistent<Object>::New(test_template->GetFunction()->NewInstance());
-  m_test->SetPointerInInternalField(0, this);
+  setINodeInObject(m_test, m_inode);
 
   // define various internal methods
   NODE_SET_METHOD(m_process, "compile", NodeStatic::Compile);
@@ -1508,10 +1429,6 @@ void Node::SetupProcessObject() {
 
   // proteus: used to create a new js object that can hold internal fields
   NODE_SET_METHOD(m_process, "createExportsObject", NodeStatic::CreateExportsObject);
-
-  // proteus: used to register a feature for Permissions API use
-  NODE_SET_METHOD(m_process, "registerPermissionFeatures", NodeStatic::RegisterPermissionFeatures);
-  NODE_SET_METHOD(m_process, "requestPermission", NodeStatic::RequestPermission);
 
   // proteus: used to lock when loadmodule or checkUpdate is called
   NODE_SET_METHOD(m_process, "acquireLock", NodeStatic::AcquireLock);
@@ -1530,7 +1447,12 @@ void Node::SetupProcessObject() {
   NODE_ASSERT(!si()->s_moduleDownloadPath.empty());
   m_process->Set(String::NewSymbol("appPath"), String::New(si()->s_appPath.c_str()));
   m_process->Set(String::NewSymbol("downloadPath"), String::New(si()->s_moduleDownloadPath.c_str()));
-  m_process->Set(String::NewSymbol("url"), String::New(m_client->url()));
+
+  INodeClientWebView *webview;
+  inode()->client()->queryInterface(INTERFACE_WEBVIEW, (void**)&webview);
+  NODE_ASSERT(webview);
+
+  m_process->Set(String::NewSymbol("url"), String::New(webview->url()));
   m_process->Set(String::NewSymbol("android"), Boolean::New(si()->s_isAndroid));
   m_process->Set(String::NewSymbol("browser"), Boolean::New(si()->s_isBrowser));
   m_process->Set(String::NewSymbol("proteusVersion"), String::New(PROTEUS_VERSION));
@@ -1621,7 +1543,7 @@ Handle<Function> Node::GetRequire() {
 
 // we expose this api so that we can catch errors reported by
 // loadModule in browser
-Handle<Value> Node::LoadModule(const Arguments& args) {
+Handle<Value> Node::loadModule(Handle<Value>* args) {
   NODE_LOGF();
   NODE_ASSERT(!m_loadModule.IsEmpty());
   NODE_ASSERT(m_loadModule->IsFunction());
@@ -1631,15 +1553,29 @@ Handle<Value> Node::LoadModule(const Arguments& args) {
   Context::Scope cscope(m_context);
 
   TryCatch try_catch;
-  Handle<Object> holder = args.Holder()->ToObject();
-  Local<Value> args_[] = { args[0], args[1], args[2] };
-  Local<Value> ret = m_loadModule->Call(holder, 3, args_);
+  Local<Value> ret = m_loadModule->Call(m_context->Global(), 3, args);
   if (try_catch.HasCaught()) {
     si()->FatalException(try_catch);
     return Undefined();
   }
   return scope.Close(ret);
 }
+
+Handle<Value> Node::require(Handle<Value> *args) {
+  NODE_ASSERT(!m_require.IsEmpty() && m_require->IsFunction());
+  NODE_ASSERT(!args[0].IsEmpty() && args[0]->IsString());
+
+  HandleScope scope;
+  Context::Scope cscope(m_context);
+  TryCatch try_catch;
+  Local<Value> ret = m_require->Call(m_context->Global(), 1, args);
+  if (try_catch.HasCaught()) {
+    si()->FatalException(try_catch);
+    return Undefined();
+  }
+  return scope.Close(ret);
+}
+
 
 struct sigaction old_sa[NSIG];
 static int RegisterSignalHandler(int signal, void (*handler)(int)) {
@@ -1737,30 +1673,7 @@ extern "C" int is_main_thread() {
   return si()->IsMainThread();
 }
 
-void Node::Init() {
-  uv_prepare_init(&m_prepare_tick_watcher);
-  m_prepare_tick_watcher.data = this;
 
-  uv_prepare_start(&m_prepare_tick_watcher, NodeStatic::PrepareTick);
-  uv_unref();
-
-  uv_check_init(&m_check_tick_watcher);
-  m_check_tick_watcher.data = this;
-  uv_check_start(&m_check_tick_watcher, NodeStatic::CheckTick);
-  uv_unref();
-
-  uv_idle_init(&m_tick_spinner);
-  m_tick_spinner.data = this;
-  uv_unref();
-
-  SetupProcessObject();
-
-#ifdef V8_DEBUG
-  NODE_LOGW("%s, node(%p), global(%p), process(%p), context(%p) browserContext(%p)",
-      __FUNCTION__, this, m_context->Global()->Address(), m_process->Address(),
-      m_context->Address(), m_browserContext->Address());
-#endif
-}
 
 void Node::EmitEvent(const char* event) {
   HandleScope scope;
@@ -1778,13 +1691,13 @@ void Node::EmitEvent(const char* event) {
   }
 }
 
-void Node::Initialize(void (*cb)(), bool isBrowser, const char* moduleRootPath, struct ev_loop* hostLoop) {
+void Node::Initialize(void (*cb)(), bool isBrowser, const char* moduleRootPath) {
   NODE_LOGF();
 
   static bool initialized = false;
   NODE_ASSERT(!initialized);
   if (!initialized) {
-    NodeStatic::create(cb, isBrowser, moduleRootPath, hostLoop);
+    NodeStatic::create(cb, isBrowser, moduleRootPath);
   }
   initialized = true;
 }
@@ -1797,27 +1710,19 @@ bool Node::IsMainThread() {
   return si()->IsMainThread();
 }
 
-struct ev_loop* Node::HostLoop() {
-  NODE_ASSERT(si()->s_hostLoop);
-  return si()->s_hostLoop;
-}
-
 int Node::ExitCode() {
   return si()->s_exitCode;
 }
 
-// node statics..
-Node::Node(NodeClient *client)
-  : m_need_tick_cb(false)
-  , m_client(client)
-{
-  NODE_ASSERT(si());
-  NODE_LOGI("NODE_API: ** new Node(), this(%p) client(%p)", this, client);
+void Node::setINodeInObject(v8::Handle<v8::Object> o, INode *inode) {
+  o->SetPointerInInternalField(0, inode);
+}
 
+void Node::Init() { 
   // This is required before we do the first initialize, since the thread needs it to send
   // back events and it needs atleast one node instance to be available
   // do not add the service node to the list..
-  if (client) {
+  if (inode()->client()) {
     si()->s_nodes.push_back(this);
   }
 
@@ -1838,16 +1743,41 @@ Node::Node(NodeClient *client)
 
   Local<Object> prototype = m_global->GetPrototype()->ToObject();
   NODE_ASSERT(prototype->InternalFieldCount() == 1);
-  prototype->SetPointerInInternalField(0, this);
+  setINodeInObject(prototype, m_inode);
 
   // initialize watchers
   memset(&m_watchers_active, 0, sizeof(m_watchers_active));
 
-  Init();
-  NODE_LOGD("%s, node::Init() complete", __FUNCTION__);
+  uv_prepare_init(&m_prepare_tick_watcher);
+  m_prepare_tick_watcher.data = this;
 
+  uv_prepare_start(&m_prepare_tick_watcher, NodeStatic::PrepareTick);
+  uv_unref();
+
+  uv_check_init(&m_check_tick_watcher);
+  m_check_tick_watcher.data = this;
+  uv_check_start(&m_check_tick_watcher, NodeStatic::CheckTick);
+  uv_unref();
+
+  uv_idle_init(&m_tick_spinner);
+  m_tick_spinner.data = this;
+  uv_unref();
+
+  SetupProcessObject();
+
+  // load node.js and other core modules
   Load();
-  NODE_LOGD("%s, node::Load() complete", __FUNCTION__);
+}
+
+// node statics..
+Node::Node(INode *inode)
+  : m_need_tick_cb(false)
+  , m_inode(inode)
+{
+  NODE_ASSERT(si());
+  NODE_LOGI("NODE_API: ** new Node(), this(%p) inode(%p) client(%p)", this, m_inode, m_inode->client());
+  m_inode->registerInterface(INTERFACE_CORE, static_cast<INodeCore*>(this));
+  m_inode->registerInterface(INTERFACE_EVENTS, static_cast<INodeEvents*>(this));
 }
 
 Node::~Node(){
@@ -1903,7 +1833,7 @@ Node::~Node(){
     uv_unref();
   }
 
-  //remove this from vector
+  // remove this from vector
   bool found = false;
   for (vector<Node* >::iterator it = si()->s_nodes.begin();
       it != si()->s_nodes.end(); it++) {
@@ -1915,26 +1845,34 @@ Node::~Node(){
   }
   NODE_ASSERT(found);
 
-  // let the client know we are gone
-  if (m_client) {
-    m_client->OnDelete();
-  }
-
-  NODE_LOGI("WATCHERS: count at node (%p) deletion - %d", this, ev_activecnt(ev_default_loop()));
+	// let the client know we are deleted
+  INodeClientEvents *events;
+  inode()->client()->queryInterface(INTERFACE_EVENTS, (void**)&events);
+	if (events) {
+		events->onDelete();
+	}
+	
+	NODE_LOGI("WATCHERS: count at node (%p) deletion - %d", this, ev_activecnt(ev_default_loop()));
 #ifdef LOG_WATCHERS
   si()->DumpActiveWatchers();
 #endif
-  NODE_LOGI("node (%p) deleted", this);
+
+	NODE_LOGI("node (%p) deleted", this);
 }
 
-void Node::Pause() {
-  NODE_LOGE("NODE_API: pause, node(%p)", this);
+void Node::onPause() {
+  NODE_LOGI("NODE_API: pause, node(%p)", this);
   EmitEvent("pause");
 }
 
-void Node::Resume() {
-  NODE_LOGE("NODE_API: resume, node(%p)", this);
+void Node::onResume() {
+  NODE_LOGI("NODE_API: resume, node(%p)", this);
   EmitEvent("resume");
+}
+
+void Node::onIdle() {
+  NODE_LOGI("NODE_API: idle, node(%p)", this);
+  EmitEvent("idle");
 }
 
 ////////////////////////////////// Implementation of libev thread ///////////////////////////////
@@ -2038,14 +1976,14 @@ std::string Node::AddressToString(void *addr) {
   return symbol;
 }
 
-void Node::PrintNativeStackTrace(android_LogPriority pri) {
+void Node::PrintNativeStackTrace(DAPILogPriority pri) {
   void *buffer[50];
   int nptrs = backtrace(buffer, 50);
-  __android_log_print_wrap(pri, LOG_TAG_NODE, "=== <native trace>");
+  DAPILog(pri, LOG_TAG_NODE, "=== <native trace>");
   for (int i = 0; i < nptrs; i++) {
-    __android_log_print_wrap(pri, LOG_TAG_NODE, "#%02d %s", i, AddressToString(buffer[i]).c_str());
+    DAPILog(pri, LOG_TAG_NODE, "#%02d %s", i, AddressToString(buffer[i]).c_str());
   }
-  __android_log_print_wrap(pri, LOG_TAG_NODE, "===");
+  DAPILog(pri, LOG_TAG_NODE, "===");
 }
 #endif
 
@@ -2059,12 +1997,12 @@ extern "C" void on_ev_start(ev_watcher *w) {
   NODE_LOGV("WATCHERS: ev_start: %p", w);
 
 #ifndef ANDROID
-  Node::PrintNativeStackTrace(ANDROID_LOG_VERBOSE);
+  Node::PrintNativeStackTrace(DAPI_LOG_VERBOSE);
 #endif
 
   Context::InContext();
   if (Context::InContext()) {
-    Node::PrintJSStackTrace(ANDROID_LOG_DEBUG);
+    Node::PrintJSStackTrace(DAPI_LOG_DEBUG);
   } else {
     NODE_LOGW("WATCHERS: ev_start: no context %p", w);
   }
@@ -2085,11 +2023,11 @@ extern "C" void on_ev_stop(ev_watcher *w) {
   }
 
 #ifndef ANDROID
-  Node::PrintNativeStackTrace(ANDROID_LOG_VERBOSE);
+  Node::PrintNativeStackTrace(DAPI_LOG_VERBOSE);
 #endif
 
   if (Context::InContext()) {
-    Node::PrintJSStackTrace(ANDROID_LOG_DEBUG);
+    Node::PrintJSStackTrace(DAPI_LOG_DEBUG);
   } else {
     NODE_LOGW("WATCHERS: ev_stop: no context %p", w);
   }
@@ -2186,7 +2124,7 @@ void NodeStatic::DumpActiveWatchers() {
 
 Handle<Value> NodeStatic::TestStack(const Arguments& args) {
   NODE_LOGF();
-  Node::PrintJSStackTrace(ANDROID_LOG_WARN);
+  Node::PrintJSStackTrace(DAPI_LOG_WARN);
   return Undefined();
 }
 
@@ -2208,11 +2146,11 @@ const char *LOG_STRING[] = {
   "UNKNOWN", "_DEFAULT", "VERBOSE", "DEBUG", "INFO", "WARN", "ERROR", "FATAL", "SILENT"
 };
 
-static android_LogPriority s_debugLevel = ANDROID_LOG_WARN;
-android_LogPriority NodeStatic::StringToLog(const char* log) {
+static DAPILogPriority s_debugLevel = DAPI_LOG_WARN;
+DAPILogPriority NodeStatic::StringToLog(const char* log) {
   for (unsigned int i = 0; i < sizeof(LOG_STRING)/sizeof(*LOG_STRING); i++) {
     if (log[0] == LOG_STRING[i][0]){
-      return (android_LogPriority)i;
+      return (DAPILogPriority)i;
     }
   }
 
@@ -2256,7 +2194,7 @@ void NodeStatic::ReadDebugLevel() {
       LOG_STRING[s_debugLevel], s_debugLevel, s_memLeak ? "ENABLED" : "DISABLED");
 }
 
-void printToStdout(android_LogPriority prio, const char *tag, const char* buf) {
+void printToStdout(DAPILogPriority prio, const char *tag, const char* buf) {
   if (si()) {
     if (!si()->s_logWatch.started()) {
       si()->s_logWatch.start();
@@ -2276,7 +2214,8 @@ void printToStdout(android_LogPriority prio, const char *tag, const char* buf) {
 
 // node follows android logging mechanism and will be controllable at build/runtime
 #define LOG_BUF_SIZE 2048
-extern "C" void __android_log_print_wrap(android_LogPriority prio, const char *tag, const char *fmt, ...) {
+extern "C" DAPIEXPORT void DAPILog(DAPILogPriority prio, 
+		const char *tag, const char *fmt, ...) {
   if (si()) {
     pthread_mutex_lock(&si()->s_log_mutex);
   }
@@ -2343,13 +2282,12 @@ void NodeStatic::EvAsyncCallback(uv_async_t *w, int revents) {
   NODE_LOGF();
 }
 
-NodeStatic::NodeStatic(void (*clientCallback)(), bool isBrowser, const char* appPath, struct ev_loop *hostLoop)
+NodeStatic::NodeStatic(void (*clientCallback)(), bool isBrowser, const char* appPath)
   : s_isBrowser(isBrowser)
   , s_isAndroid(false)
   , s_serviceNode(0)
   , s_clientCallback(clientCallback)
   , s_memLeak(false)
-  , s_hostLoop(hostLoop)
   , s_exitCode(0)
 {
   s_instance = this;
@@ -2390,3 +2328,5 @@ NodeStatic::NodeStatic(void (*clientCallback)(), bool isBrowser, const char* app
 }
 
 }  // namespace node
+
+

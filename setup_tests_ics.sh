@@ -58,6 +58,12 @@ do
        -f|--filesystem)
                FILESYSTEM=true
                ;;
+       -ws=*|--workspace=*)
+               WS_DIR=`echo $i | sed 's/[-a-zA-Z0-9]*=//'`
+               ;;
+       -md=*|--module-dir=*)
+               MODULE_DIR=`echo $i | sed 's/[-a-zA-Z0-9]*=//'`
+               ;;
        -a|--all)
                UT=true
                UNZIP=true
@@ -74,10 +80,38 @@ do
    esac
 done
 
-set -x
-adb shell am start -a android.intent.action.VIEW -n com.android.browser/.BrowserActivity
+# set -x
 
 # create directories
+NODE_DIR=$PWD
+
+if [ "$WS_DIR" == "" ]; then
+  WS_DIR=$PWD/../..
+fi
+
+if [ -d $WS_DIR ]; then
+  if [ -d "$WS_DIR/out/target/product/msm8660_surf" ]; then
+    OUT_DIR="$WS_DIR/out/target/product/msm8660_surf"
+  elif [ -d "$WS_DIR/out/target/product/msm8960_surf" ]; then
+    OUT_DIR="$WS_DIR/out/target/product/msm8960_surf"
+  else
+    echo "OUT_DIR not found, specify the workspace dir -ws/--workspace=<>"
+    exit
+  fi
+fi
+
+
+if [ "$MODULE_DIR" == "" ]; then
+  MODULE_DIR=$NODE_DIR/modules
+fi
+
+if [ ! -d $MODULE_DIR ]; then
+  echo "modules dir not present in node path, specify it  with -md/--module-dir=<>"
+  exit
+fi
+
+adb shell am start -a android.intent.action.VIEW -n com.android.browser/.BrowserActivity
+
 PPATH=/data/data/com.android.browser/.dapi
 DPATH=/data/data/com.android.browser/.dapi/downloads
 adb shell mkdir $PPATH
@@ -92,6 +126,7 @@ fi
 
 adb shell mkdir $DPATH/public-test
 adb push public-test $DPATH/public-test
+adb push modules/proteus/proteusConfig/lib/config.json $PPATH
 
 if $UT; then
   adb shell mkdir $DPATH/test
@@ -144,13 +179,12 @@ if $PERMISSION; then
   adb shell mkdir $PPATH
   adb shell mkdir $PPATH/bin
   adb shell mkdir $PPATH/lib
-  adb push modules/proteus/permission/package.json $PPATH
-  adb push modules/proteus/permission/lib/permission.js $PPATH/lib/
-  adb push ../../out/target/product/msm8660_surf/symbols/system/lib/permission.so $PPATH/bin/
-  adb push modules/proteus/permission/test/FeatureWebapp.html /data/
-  adb push modules/proteus/permission/test/Navigator.html /data/
-  adb push modules/proteus/permissionUI/test/pemissionUITest.html /data/
-  adb push modules/proteus/testPermissions/test/testpermissions.html /data/
+  adb push $MODULE_DIR/permission/package.json $PPATH
+  adb push $MODULE_DIR/permission/lib/permission.js $PPATH/lib/
+  adb push $OUT_DIR/system/lib/permission.so $PPATH/bin/
+  adb push $MODULE_DIR/permission/test/FeatureWebapp.html /data/
+  adb push $MODULE_DIR/permission/test/Navigator.html /data/
+  adb push $MODULE_DIR/permissionUI/test/pemissionUITest.html /data/
 fi
 
 # To run modloader test
@@ -167,10 +201,10 @@ if $CAMERA; then
   adb shell mkdir $DPATH/public-camera
   adb shell mkdir $DPATH/public-camera/lib
   adb shell mkdir $DPATH/public-camera/bin
-  adb push ../../out/target/product/msm8660_surf/system/lib/camera_bindings.so $DPATH/public-camera/bin
-  adb push modules/proteus/proteusCamera/package.json $DPATH/public-camera/
-  adb push modules/proteus/proteusCamera/lib/camera-api.js $DPATH/public-camera/lib
-  adb push modules/proteus/proteusCamera/test /data/
+  adb push $OUT_DIR/system/lib/camera_bindings.so $DPATH/public-camera/bin
+  adb push $MODULE_DIR/camera/package.json $DPATH/public-camera/
+  adb push $MODULE_DIR/camera/lib/camera-api.js $DPATH/public-camera/lib
+  adb push $MODULE_DIR/camera/test /data/
 fi
 #adb shell am start -a android.intent.action.VIEW -n com.android.browser/.BrowserActivity -d file:///data/camera-vnode.html
 
@@ -178,7 +212,7 @@ if $FILESYSTEM; then
   FSPATH=$DPATH/proteusFS
   adb shell mkdir $FSPATH
   adb shell mkdir $FSPATH/lib
-  adb push modules/proteus/proteusFS/package.json $FSPATH
+  adb push $MODULE_DIR/proteusFS/package.json $FSPATH
 fi
 
 # kill the browser

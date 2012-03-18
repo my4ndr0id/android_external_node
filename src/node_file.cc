@@ -100,7 +100,6 @@ class FileNodeModule : public NodeModule {
     void add(eio_req* req);
     void remove(eio_req* req);
     ModuleId Module() { return MODULE_FS; }
-    void HandleWebKitEvent(WebKitEvent *e) {NODE_NI();}
     void release();
 
   private:
@@ -1153,7 +1152,7 @@ void File::Initialize(Handle<Object> target) {
 void InitFs(Handle<Object> target) {
   HandleScope scope;
 
-  Node *n = static_cast<Node*>(target->GetPointerFromInternalField(0));
+  Node *n = Node::GetNodeFromObject(target);
   FileNodeModule *module = new FileNodeModule(n);
   NODE_LOGV("%s, node (%p), FileNodeModule(%p)",__FUNCTION__, n, module);
   target->SetPointerInInternalField(1, module);

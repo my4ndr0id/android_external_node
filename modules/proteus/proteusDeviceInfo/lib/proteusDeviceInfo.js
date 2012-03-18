@@ -31,18 +31,20 @@
 var deviceInfoBindings = process.binding('deviceinfo');
 
 var deviceInfoPropertyList = {
-    "ro.product.manufacturer": "manufacturer",
-    "ro.product.device": "device",
-    "ro.product.model": "model",
-    "ro.product.name": "name",
-    "ro.hardware": "hwd",
-    "ro.build.display.id": "build",
-    "ro.carrier": "carrier",
+    "ro.product.manufacturer": "mn",
+    "ro.product.device": "dv",
+    "ro.product.model": "mdl",
+    "ro.product.name": "nm",
+    "ro.hardware": "hw",
+    "ro.build.display.id": "bld",
+    "ro.carrier": "cr",
     "ro.product.locale.language": "lang",
-    "ro.product.locale.region": "region",
-    "ro.product.board": "board",
-    "ro.product.brand": "brand",
-    "ro.board.platform": "platform"
+    "ro.product.locale.region": "reg",
+    "ro.product.board": "brd",
+    "ro.product.brand": "brnd",
+    "ro.board.platform": "pl",
+    "ro.build.version.release": "av",
+    "ro.build.fingerprint": "fp"
 };
 
 var environmentPropertyList = {
@@ -84,7 +86,7 @@ exports.getDeviceInfo = function () {
         deviceInfo[deviceInfoPropertyList[i]] = value;
     }
     // add the proteus Version
-    deviceInfo["proteusVersion"] = process.proteusVersion;
+    deviceInfo["pv"] = process.proteusVersion;
     console.info("getDeviceInfo -> " + JSON.stringify(deviceInfo));
     return deviceInfo;
 };

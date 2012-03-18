@@ -27,39 +27,34 @@
  * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include <node.h>
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <node_buffer.h>
-#include <sys/stat.h>
-#include <cstring>
-#include <string>
+#include <dapi_module.h>
+
 #ifdef ANDROID
 #include <cutils/properties.h>
 #endif
 
 using namespace v8;
-using namespace node;
+using namespace dapi;
 
-
-class DeviceInfoUtil: ObjectWrap {
+class DeviceInfoUtil: node::ObjectWrap {
   private :
-    Node *m_node;
+    INode *m_inode;
     char *m_downloadPath;
   public:
-    Node *node() { return m_node; }
+    INode *inode() { return m_inode; }
 
     static Persistent<FunctionTemplate> s_ct;
 
-    DeviceInfoUtil(Node *node_, char* downloadPath) : m_node(node_)
+    DeviceInfoUtil(INode *inode, char* downloadPath) : m_inode(inode)
     {
       m_downloadPath = strdup(downloadPath);
     }
 
     ~DeviceInfoUtil(){
       free(m_downloadPath);
-      m_node = 0;
+      m_inode = 0;
       m_downloadPath = 0;
     }
 
@@ -122,9 +117,12 @@ class DeviceInfoUtil: ObjectWrap {
       DeviceInfoUtil* deviceInfoUtil = ObjectWrap::Unwrap<DeviceInfoUtil>(args.This());
       String::AsciiValue property(args[0]->ToString());
 #ifdef ANDROID
-      const char* propertyValue = deviceInfoUtil->node()->client()->GetEnvironmentProperty(*property, false);
-      NODE_LOGV("%s, GetEnvironmentProp : Property %s  --> %s\n", __FUNCTION__, *property, propertyValue);
-      return scope.Close(v8::String::New((char *)propertyValue));
+      dapi::INodeClientWebView *webview;
+      deviceInfoUtil->inode()->client()->queryInterface(dapi::INTERFACE_WEBVIEW, (void**)&webview);
+      NODE_ASSERT(webview);
+      std::string propertyValue = webview->getEnvironmentProperty(*property, false);
+      NODE_LOGV("%s, GetEnvironmentProp : Property %s  --> %s\n", __FUNCTION__, *property, propertyValue.c_str());
+      return v8::String::New((char *)propertyValue.c_str());
 #else
       std::string path;
       path.append(deviceInfoUtil->m_downloadPath);
@@ -136,15 +134,10 @@ class DeviceInfoUtil: ObjectWrap {
     static Handle<Value> New(const Arguments& args)
     {
       HandleScope scope;
-      // args[0] is the process object, till we have a way to automatically embed the node reference
-      // we need to explicitly pass it
-      NODE_ASSERT(!args[0].IsEmpty() && args[0]->IsObject());
-      Handle<Object> process = args[0]->ToObject();
       String::AsciiValue downloadPath(args[1]->ToString());
-
-      Node *node_ = static_cast<Node*>(process->GetPointerFromInternalField(0));
-      NODE_LOGD("%s, node(%p)", __FUNCTION__, node_);
-      DeviceInfoUtil* deviceInfoUtil = new DeviceInfoUtil(node_, *downloadPath);
+      INode *inode = INode::getCurrentINode();
+      NODE_LOGD("%s, node(%p)", __FUNCTION__, inode);
+      DeviceInfoUtil* deviceInfoUtil = new DeviceInfoUtil(inode, *downloadPath);
       deviceInfoUtil->Wrap(args.This());
       return args.This();
     }

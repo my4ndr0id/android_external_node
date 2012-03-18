@@ -28,7 +28,6 @@
 ##
 
 #!/bin/bash
-set -x
 
 function kill_() {
   adb shell am start -a android.intent.action.VIEW -n com.android.browser/.BrowserActivity;
@@ -38,10 +37,25 @@ function kill_() {
 }
 
 # kill browser twice before running test to clear any peristance url cache
-kill_
-kill_
+# kill_
+# kill_
 
-cd modules/proteus/proteusCamera/test/
+for i in $*
+do
+   case $i in
+       -md=*|--module-dir=*)
+               MODULE_DIR=`echo $i | sed 's/[-a-zA-Z0-9]*=//'`
+               ;;
+   esac
+done
+
+if [ "$MODULE_DIR" == "" ]; then
+  echo "Specify Module dir, run_camera_tests.sh --module-dir=<>"
+  exit
+fi
+
+
+cd $MODULE_DIR/camera/test/
 for file in `ls *.html`; do
  adb shell am start -a android.intent.action.VIEW -n com.android.browser/.BrowserActivity -d file:///data/$file
  sleep 5
