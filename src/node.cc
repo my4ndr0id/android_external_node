@@ -222,6 +222,7 @@ class NodeStatic {
     static v8::Handle<v8::Value> TestContext(const v8::Arguments& args);
     static v8::Handle<v8::Value> TestWatcherThread(const v8::Arguments& args);
     static v8::Handle<v8::Value> TestExitCode(const v8::Arguments& args);
+    static v8::Handle<v8::Value> TestWatchers(const v8::Arguments& args);
 
     static void HandleSIGSEGV(int signal);
 
@@ -996,9 +997,10 @@ Handle<Value> NodeStatic::CreateExportsObject(const Arguments& args) {
 }
 
 Handle<Value> NodeStatic::TestDeleteNode(const Arguments& args) {
-  Node *n = Node::GetNodeFromObject(args.Holder());
-  delete n;
-  return Undefined();
+  INode *inode = INode::getINodeFromObject(args.Holder());
+  delete inode;
+
+  return Handle<Value>();
 }
 
 Handle<Value> NodeStatic::AcquireLock(const Arguments& args) {
@@ -1471,6 +1473,7 @@ void Node::SetupProcessObject() {
   NODE_SET_METHOD(m_test, "watcherThread", NodeStatic::TestWatcherThread);
   NODE_SET_METHOD(m_test, "context", NodeStatic::TestContext);
   NODE_SET_METHOD(m_test, "exitCode", NodeStatic::TestExitCode);
+  NODE_SET_METHOD(m_test, "watchers", NodeStatic::TestWatchers);
 
   // proteus: destroys the current node, useful for simulating destroying a page and testing
   // activity cancellation in different modules (e.g. fs should stop all watchers)
@@ -1845,19 +1848,39 @@ Node::~Node(){
   }
   NODE_ASSERT(found);
 
-	// let the client know we are deleted
-  INodeClientEvents *events;
-  inode()->client()->queryInterface(INTERFACE_EVENTS, (void**)&events);
-	if (events) {
-		events->onDelete();
-	}
-	
-	NODE_LOGI("WATCHERS: count at node (%p) deletion - %d", this, ev_activecnt(ev_default_loop()));
+  // cleanup any active watchers
+  NODE_LOGI("WATCHERS: node (%p) deletion, watchers active (total=%d, instance specific=%d)",
+      this, ev_activecnt(ev_default_loop()), m_watcherWrapSet.size());
+  Context::Scope context(m_context);
+  set<void*>::iterator it = m_watcherWrapSet.begin();
+  while (it != m_watcherWrapSet.end()) {
+    NODE_LOGV("WATCHERS: deleting wrapper %p", *it);
+
+    // Delete below results in call to removeWrapObject
+    // which removes the object from the set and invalidates the
+    // iterator (stl impl dependant), so we point the iterator to
+    // next element before we delete
+    set<void*>::iterator toDelete = it++;
+    delete static_cast<ObjectWrap*>(*toDelete);
+  }
+  NODE_LOGI("WATCHERS: count at node (%p) deletion after cleanup - %d",
+      this, ev_activecnt(ev_default_loop()));
+
 #ifdef LOG_WATCHERS
   si()->DumpActiveWatchers();
 #endif
 
-	NODE_LOGI("node (%p) deleted", this);
+  // let the client know we are deleted
+  INodeClientEvents *events;
+  inode()->client()->queryInterface(INTERFACE_EVENTS, (void**)&events);
+  if (events) {
+    events->onDelete();
+  }
+
+  // added a custom event "delete", this is different from "exit" in that we send it as
+  // the last step in node deletion, this allows for tests to verify watcher count as an example
+  EmitEvent("delete");
+  NODE_LOGI("node (%p) deleted", this);
 }
 
 void Node::onPause() {
@@ -1874,6 +1897,18 @@ void Node::onIdle() {
   NODE_LOGI("NODE_API: idle, node(%p)", this);
   EmitEvent("idle");
 }
+
+void Node::addWatcherWrap(void* watcherWrap) {
+  NODE_ASSERT(m_watcherWrapSet.find(watcherWrap) == m_watcherWrapSet.end());
+  m_watcherWrapSet.insert(watcherWrap);
+}
+
+void Node::removeWatcherWrap(void* watcherWrap) {
+  set<void*>::iterator it = m_watcherWrapSet.find(watcherWrap);
+  NODE_ASSERT(it != m_watcherWrapSet.end());
+  m_watcherWrapSet.erase(watcherWrap);
+}
+
 
 ////////////////////////////////// Implementation of libev thread ///////////////////////////////
 
@@ -2007,7 +2042,6 @@ extern "C" void on_ev_start(ev_watcher *w) {
     NODE_LOGW("WATCHERS: ev_start: no context %p", w);
   }
 
-  si()->DumpActiveWatchers();
 #endif
 }
 
@@ -2032,7 +2066,6 @@ extern "C" void on_ev_stop(ev_watcher *w) {
     NODE_LOGW("WATCHERS: ev_stop: no context %p", w);
   }
 
-  si()->DumpActiveWatchers();
 #endif
 }
 
@@ -2116,7 +2149,7 @@ void NodeStatic::DumpActiveWatchers() {
 #ifdef ANDROID
     NODE_LOGD("WATCHERS: Active %p, %p", (*it).first, (*it).first->cb);
 #else
-    NODE_LOGV("WATCHERS: Active %p, %s", (*it).first,
+    NODE_LOGD("WATCHERS: Active %p, %s", (*it).first,
         Node::AddressToString((void*)(*it).first->cb).c_str());
 #endif
   }
@@ -2131,6 +2164,10 @@ Handle<Value> NodeStatic::TestStack(const Arguments& args) {
 Handle<Value> NodeStatic::TestExitCode(const Arguments& args) {
   si()->s_exitCode = args[0]->NumberValue();
   return Handle<Value>();
+}
+
+Handle<Value> NodeStatic::TestWatchers(const Arguments& args) {
+  return v8::Integer::New(ev_activecnt(ev_default_loop()));
 }
 
 Handle<Value> NodeStatic::TestWatcherStats(const Arguments& args) {

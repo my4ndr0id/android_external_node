@@ -80,6 +80,11 @@ class INodeClientCameraView {
   public:
     INodeClientCameraView(){}
     virtual ~INodeClientCameraView(){}
+
+    /**
+      * Detaches source from the view
+      */
+    virtual void detach() = 0;
 };
 
 /**

@@ -33,12 +33,14 @@
 
 #include "dapi.h"
 #include "ev.h"
+#include <set>
 
 using namespace v8;
 using namespace dapi;
 using namespace std;
 
-class INodeProxy : public INodeClient, public INodeClientWebView {
+class INodeProxy : public INodeClient, public INodeClientWebView,
+  public INodeClientEvents {
   public:
     INodeProxy() : m_inode(0) {}
     ~INodeProxy();
@@ -56,10 +58,14 @@ class INodeProxy : public INodeClient, public INodeClientWebView {
     const char* getEnvironmentProperty(const char *prop, bool ) { return ""; }
     void setScreenOrientationLock(const char *orientation){ }
 
+    // Events
+    void onDelete();
+
   private:
     INode *m_inode;
     Persistent<Context> m_context;
     bool m_testDone;
+
 };
 
 class Host {
@@ -79,14 +85,9 @@ class Host {
     static void handleInvokePendingMainThreadAsyncCb(EV_P_ ev_async *w, int revents);
     static void InvokePendingCB(EV_P);
 
-    // accessors
-    struct ev_loop* loop() { return s_loop; }
-    vector<INode*>* nodes() { return &s_nodes; }
-
-  private:
     struct ev_loop* s_loop;
     ev_async s_asyncInvokePending;
-    vector<INode*> s_nodes;
+    set<INode*> s_nodes;
 
     // singleton host instance
     static Host* s_instance;
@@ -116,7 +117,7 @@ void Host::InvokePendingCB(EV_P) {
         ev_activecnt(si()->s_loop), ev_activecnt(ev_default_loop()));
 
     // send idle events to all active nodes..
-    vector<INode* >::iterator it = si()->s_nodes.begin();
+    set<INode* >::iterator it = si()->s_nodes.begin();
     for (;it != si()->s_nodes.end(); it++) {
       dapi::INodeEvents *events;
       (*it)->queryInterface(dapi::INTERFACE_EVENTS, (void**)&events);
@@ -142,7 +143,7 @@ void INodeProxy::runInNodeContext(const char *module) {
     m_context = Context::New();
     Context::Scope cscope(m_context);
     m_inode = new INode(this);
-    si()->nodes()->push_back(m_inode);
+    si()->s_nodes.insert(m_inode);
   }
 
   // require(module)
@@ -153,7 +154,7 @@ void INodeProxy::runInNodeContext(const char *module) {
 }
 
 INodeProxy::~INodeProxy() {
-  NODE_LOGV("~INodeProxy: %p", this);
+  NODE_LOGV("~INodeProxy: %p inode(%p)", this, m_inode);
   if (m_inode) {
     delete m_inode;
   }
@@ -167,13 +168,20 @@ bool INodeProxy::queryInterface(Interface interface, void** object) {
       return true;
 
     case INTERFACE_EVENTS:
-      return false; // Not Implemented
+      *object = static_cast<INodeClientEvents*>(this);
+      return true;
 
     default:
       NODE_LOGE("Interface %d not implemented", interface);
       NODE_ASSERT_REACHABLE();
   }
   return false;
+}
+
+void INodeProxy::onDelete() {
+  NODE_ASSERT(si()->s_nodes.find(m_inode) != si()->s_nodes.end());
+  si()->s_nodes.erase(si()->s_nodes.find(m_inode));
+  m_inode = 0;
 }
 
 int Host::init(int argc, char *argv[]) {
@@ -198,9 +206,18 @@ int Host::init(int argc, char *argv[]) {
   INodeProxy proxy;
   for (int i = 1; i <= argc-1; i++ ) {
     const char *arg = argv[i];
+
+    // suspend the qnode for 10 seconds, this allows enough
+    // time to attach debugger to debug crashes on device
+    // adb shell qnode --wait /data/<test_module.js>
+    if (strcmp(arg, "--wait") == 0) {
+      sleep(15);
+    }
+
     if (!arg || arg[0] == '-') {
       continue;
     }
+
     NODE_LOGI("main, running test %s", arg);
     proxy.runInNodeContext(arg);
     si()->handleNodeEvents();

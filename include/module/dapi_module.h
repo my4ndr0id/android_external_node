@@ -57,7 +57,7 @@ do {                                                                      \
  * an API is broken in the C++ side, including in v8 or
  * other dependencies
  */
-#define PROTEUS_VERSION "2.0.1"
+#define PROTEUS_VERSION "2.0.2"
 #define NODE_MODULE_VERSION (2)
 #define NODE_STANDARD_MODULE_STUFF \
    NODE_MODULE_VERSION, NULL, __FILE__

@@ -204,7 +204,7 @@ def set_options(opt):
 
   opt.add_option('--libzipfile-path'
                 , action='store'
-                , default='../dapi/libzipfile'
+                , default='../../dapi/libzipfile'
                 , help='libzipfile path, path to your dapi/libzipfile'
                 , dest='libzipfile_path'
                 )
@@ -760,7 +760,7 @@ def build(bld):
   modloaderjslist = ' ' + bld.path.ant_glob('modules/proteus/proteusModLoader/lib/*.js') + ' ' + \
        bld.path.ant_glob('modules/proteus/proteusPackageExtractor/lib/*.js') + ' ' + \
        bld.path.ant_glob('modules/proteus/proteusUnzip/lib/*.js') + \
-       ' ../node-sqlite-sync/sqlite.js ' + \
+       ' ../modules/sqlite-sync/sqlite.js ' + \
        bld.path.ant_glob('modules/proteus/proteusDeviceInfo/lib/*.js') + ' ' + \
        bld.path.ant_glob('modules/proteus/proteusConfig/lib/*.js') + ' ' + \
        bld.path.ant_glob('modules/proteus/webapp/webapp.js') + ' ' + \
@@ -890,7 +890,7 @@ def build(bld):
     node.source += " src/node_timer.cc "
 
   # proteus: add sync sqlite as builtin module - https://github.com/grumdrig/node-sqlite.git
-  node.source += " ../node-sqlite-sync/sqlite3_bindings.cc "
+  node.source += " ../modules/sqlite-sync/sqlite3_bindings.cc "
 
   # Modloader
   node.source += " modules/proteus/proteusUnzip/src/node_unzip.cc "

@@ -55,6 +55,7 @@ extern "C" {
 
 #include <v8.h>
 #include <vector>
+#include <set>
 #include "eio.h"
 #include "node_object_wrap.h"
 #include "dapi.h"
@@ -189,6 +190,7 @@ class Node :
      * @return node instance for the given process
      */
     static Node* GetNodeFromObject(v8::Handle<v8::Object> o);
+    static Node* GetCurrentNode();
 
     /**
      * Executes the given string in node context
@@ -275,6 +277,8 @@ class Node :
     v8::Handle<v8::Value> require(v8::Handle<v8::Value>* args);
     v8::Handle<v8::Context> inodeContext() { return m_context; }
     v8::Handle<v8::Context> inodeClientContext() { return m_browserContext; }
+    void addWatcherWrap(void* watcherWrap);
+    void removeWatcherWrap(void* watcherWrap);
 
   private:
 
@@ -306,6 +310,10 @@ class Node :
 
     // watcher for timeouts
     uv_timer_t  m_test_timeout_watcher;
+
+    // maintains a list of watcher wrappers, this enables us to
+    // cleanup watchers at delete
+    std::set<void*> m_watcherWrapSet;
 
     // INodeClient (e.g. webkit node proxy)
     dapi::INode *m_inode;

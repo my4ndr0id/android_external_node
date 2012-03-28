@@ -27,50 +27,34 @@
  * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef DAPI_CORE_H
-#define DAPI_CORE_H
+#ifndef DAPI_AUDIO_H
+#define DAPI_AUDIO_H
 
 namespace dapi {
 
 /**
- * Interface to the node core api
+ * @defgroup audio
+ * Interfaces used by the audio module in the node.
+ * @{
  */
-class INodeCore {
-  public:
-    INodeCore() {}
-    virtual ~INodeCore() {}
+
+/**
+ * Exposes api for audio module like an array buffer out of a raw audio data etc
+ */
+class INodeClientAudio {
+	public:
+    INodeClientAudio(){}
+    virtual ~INodeClientAudio(){}
 
     /**
-     * Invokes "loadModule" javascript api in node's context. This api loads
-     * the module asynchonously including downloading the module if required.
-     *
-     * @param args module to load, success callback and optional error callback
-     * @return none, the module reference is returned in the successcb
+     * Creates a ArrayBuffer from the raw image data. We use webkit api
+     * currently since node does not have a ArrayBuffer implementation
      */
-    virtual v8::Handle<v8::Value> loadModule(v8::Handle<v8::Value>* args) = 0;
-
-    /**
-     * Invokes "require" javascript api in node's context. This api loads the
-     * module synchronously. To be used in offtarget test environment only.
-     *
-     * @param args module to load
-     * @return reference to module
-     */
-    virtual v8::Handle<v8::Value> require(v8::Handle<v8::Value>* args) = 0;
-
-    /**
-     * Get the inode v8 context
-     */
-    virtual v8::Handle<v8::Context> inodeContext() = 0;
-
-    /**
-     * Get the inode client (webkit) v8 context
-     */
-    virtual v8::Handle<v8::Context> inodeClientContext() = 0;
-
-    virtual void addWatcherWrap(void* watcherWrap) = 0;
-    virtual void removeWatcherWrap(void* watcherWrap) = 0;
+    virtual v8::Handle<v8::Value> createArrayBuffer(void *buf, int size) = 0;
 };
 
+/*@}*/
+
 }
+
 #endif

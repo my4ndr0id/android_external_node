@@ -25,12 +25,26 @@
 #include <v8.h>
 #include <assert.h>
 
+#include "dapi_log.h"
+#include "dapi_inode.h"
+#include "dapi_core.h"
+
 namespace node {
+using namespace dapi;
 
 class ObjectWrap {
  public:
   ObjectWrap ( ) {
     refs_ = 0;
+
+    // add ourself to the current node to enable cleanup of watchers at node
+    // deletion. The assumption is that all watchers are controlled by a
+    // native object implementing the objectwrap interface
+    m_inode = INode::getCurrentINode();
+    NODE_LOGV("ObjectWrap(%p), inode(%p)", this, m_inode);
+    INodeCore *core;
+    INode::getCurrentINode()->queryInterface(INTERFACE_CORE, (void**)&core);
+    core->addWatcherWrap(this);
   }
 
 
@@ -44,6 +58,13 @@ class ObjectWrap {
       handle_.Dispose();
       handle_.Clear();
     }
+
+    // This could be called directly by the node cleanup, module itself
+    // or during GC
+    NODE_LOGV("~ObjectWrap(%p), inode(%p)", this, m_inode);
+    INodeCore *core;
+    m_inode->queryInterface(INTERFACE_CORE, (void**)&core);
+    core->removeWatcherWrap(this);
   }
 
 
@@ -99,6 +120,7 @@ class ObjectWrap {
 
 
   int refs_; // ro
+  INode* m_inode;
 
 
  private:

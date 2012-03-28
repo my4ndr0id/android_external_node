@@ -29,6 +29,7 @@
 
 #include "node.h"
 #include <map>
+#include <set>
 
 namespace dapi {
 using namespace node;
@@ -90,11 +91,14 @@ INode::INode(INodeClient *client)
   , m_private(new INodePrivate(this))
 {
   m_node = new Node(this);
+  NODE_LOGI("Inode::Inode(%p), node(%p)", this, m_node);
   m_node->Init();
 }
 
 INode::~INode() {
+  NODE_LOGI("~Inode::Inode(%p), node(%p)", this, m_node);
   delete m_node;
+  delete m_private;
 }
 
 void INode::initialize(void (*cb)(), bool isBrowser, const char* moduleRootPath) {

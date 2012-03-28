@@ -52,11 +52,13 @@ function proteusModManager() {
         "clientConnTimeout": 5000,
         "clientUpdatePeriod": 1209600000,
         "clientRetryTime": 500,
-        "clientCoreModulesUpgrade": []
+        "clientCoreModulesUpgrade": [],
+        "ca": ["-----BEGIN CERTIFICATE-----\r\nMIIE0zCCA7ugAwIBAgIQGNrRniZ96LtKIVjNzGs7SjANBgkqhkiG9w0BAQUFADCB\r\nyjELMAkGA1UEBhMCVVMxFzAVBgNVBAoTDlZlcmlTaWduLCBJbmMuMR8wHQYDVQQL\r\nExZWZXJpU2lnbiBUcnVzdCBOZXR3b3JrMTowOAYDVQQLEzEoYykgMjAwNiBWZXJp\r\nU2lnbiwgSW5jLiAtIEZvciBhdXRob3JpemVkIHVzZSBvbmx5MUUwQwYDVQQDEzxW\r\nZXJpU2lnbiBDbGFzcyAzIFB1YmxpYyBQcmltYXJ5IENlcnRpZmljYXRpb24gQXV0\r\naG9yaXR5IC0gRzUwHhcNMDYxMTA4MDAwMDAwWhcNMzYwNzE2MjM1OTU5WjCByjEL\r\nMAkGA1UEBhMCVVMxFzAVBgNVBAoTDlZlcmlTaWduLCBJbmMuMR8wHQYDVQQLExZW\r\nZXJpU2lnbiBUcnVzdCBOZXR3b3JrMTowOAYDVQQLEzEoYykgMjAwNiBWZXJpU2ln\r\nbiwgSW5jLiAtIEZvciBhdXRob3JpemVkIHVzZSBvbmx5MUUwQwYDVQQDEzxWZXJp\r\nU2lnbiBDbGFzcyAzIFB1YmxpYyBQcmltYXJ5IENlcnRpZmljYXRpb24gQXV0aG9y\r\naXR5IC0gRzUwggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQCvJAgIKXo1\r\nnmAMqudLO07cfLw8RRy7K+D+KQL5VwijZIUVJ/XxrcgxiV0i6CqqpkKzj/i5Vbex\r\nt0uz/o9+B1fs70PbZmIVYc9gDaTY3vjgw2IIPVQT60nKWVSFJuUrjxuf6/WhkcIz\r\nSdhDY2pSS9KP6HBRTdGJaXvHcPaz3BJ023tdS1bTlr8Vd6Gw9KIl8q8ckmcY5fQG\r\nBO+QueQA5N06tRn/Arr0PO7gi+s3i+z016zy9vA9r911kTMZHRxAy3QkGSGT2RT+\r\nrCpSx4/VBEnkjWNHiDxpg8v+R70rfk/Fla4OndTRQ8Bnc+MUCH7lP59zuDMKz10/\r\nNIeWiu5T6CUVAgMBAAGjgbIwga8wDwYDVR0TAQH/BAUwAwEB/zAOBgNVHQ8BAf8E\r\nBAMCAQYwbQYIKwYBBQUHAQwEYTBfoV2gWzBZMFcwVRYJaW1hZ2UvZ2lmMCEwHzAH\r\nBgUrDgMCGgQUj+XTGoasjY5rw8+AatRIGCx7GS4wJRYjaHR0cDovL2xvZ28udmVy\r\naXNpZ24uY29tL3ZzbG9nby5naWYwHQYDVR0OBBYEFH/TZafC3ey78DAJ80M5+gKv\r\nMzEzMA0GCSqGSIb3DQEBBQUAA4IBAQCTJEowX2LP2BqYLz3q3JktvXf2pXkiOOzE\r\np6B4Eq1iDkVwZMXnl2YtmAl+X6/WzChl8gGqCBpH3vn5fJJaCGkgDdk+bW48DW7Y\r\n5gaRQBi5+MHt39tBquCWIMnNZBU4gcmU7qKEKQsTb47bDN0lAtukixlE0kF6BWlK\r\nWE9gyn6CagsCqiUXObXbf+eEZSqVir2G3l6BFoMtEMze/aiCKm0oHw0LxOXnGiYZ\r\n4fQRbxC1lfznQgUy286dUV4otp6F01vvpX1FQHKOtw5rDgb7MzVIcbidJ4vEZV8N\r\nhnacRHr2lVz2XTIIM6RUthg/aFzyQkqFOFSDX9HoLPKsEdao7WNq\r\n-----END CERTIFICATE-----\r\n"]
     };
     var consts = {
         NETWORK_ERR: "TYPE_NETWORK_ERR",
         NETWORK_ERR_MSG: "Network error",
+        NETWORK_SSL_MSG: "SSL Error",
         TYPE_MISMATCH_ERR: "TYPE_MISMATCH_ERR",
         TYPE_MISMATCH_ERR_MSG: "Type mismatch error - unexpected parameter",
         INVALID_VALUES_ERR: "INVALID_VALUES_ERR",
@@ -258,7 +260,7 @@ function proteusModManager() {
             console.info("ProteusModLoader::installPackage ::  crx file  " + filePath);
             var installPath;
             installPath = PROTEUS_PATH + moduleName;
-            packageExtractor.packageExtractor.extract(filePath, moduleName, function() {
+            packageExtractor.extract(filePath, moduleName, function() {
                 successCB(installPath);
             }, function(error) {
                 failureCB(error);
@@ -288,6 +290,8 @@ function proteusModManager() {
                     path: parsedURL.pathname + parsedURL.search,
                     method: 'GET'
                 };
+                var configCA = getProperty("ca", true);
+                options.ca = configCA ? (configCA.length === 0 ? undefined : configCA) : localSetting['ca'];
                 // function to cleanup if request is being cancelled
                 requestCancelFn = function() {
                     if (request) {
@@ -305,6 +309,12 @@ function proteusModManager() {
                 console.info("<<Time : Connected To server for : " + moduleName + ">>" + Date.now());
                 connected = true;
                     try {
+                        if (!response.client.authorized) {
+                            clearTimeoutfn();
+                            process.removeListener('exit', requestCancelFn);
+                            failureCB(createError(consts.NETWORK_ERR, consts.NETWORK_SSL_MSG));
+                            return;
+                        }
                         switch (response.statusCode) {
                         case 200:
                             contentLength = response.headers['content-length'];
@@ -475,6 +485,8 @@ function proteusModManager() {
                 path: parsedURL.pathname + parsedURL.search,
                 method: 'GET'
             };
+            var configCA = getProperty("ca", true);
+            options.ca = configCA ? (configCA.length === 0 ? undefined : configCA) : localSetting['ca'];
             console.info("Get version :: requestUrl : split " + sys.inspect(options));
             abortVersionCheckFn = function() {
                 if (request && process.getModuleUpdates() < 2) {
@@ -487,6 +499,14 @@ function proteusModManager() {
             };
             request = https.request(options, function(response) {
                 try {
+                    if (!response.client.authorized) {
+                        // unregister function for node destruction.
+                        clearTimeoutfn();
+                        process.removeListener('exit', abortVersionCheckFn);
+                        request.abort();
+                        failureCB("unable to get latest version SSL not authorized", response.statusCode);
+                        return;
+                    }
                     var versionResponse = '';
                     switch (response.statusCode) {
                     case 200:

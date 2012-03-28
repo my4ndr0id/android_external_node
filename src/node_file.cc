@@ -93,9 +93,11 @@ static inline bool SetCloseOnExec(int fd) {
  * when a new async request is done, the watcher (eio_req) is added to a list, and on completion removed
  * if the node instance is released it would cancel all pending requests in the list
  */
-class FileNodeModule : public NodeModule {
+class FileNodeModule : public ObjectWrap, public NodeModule {
   public:
     FileNodeModule(Node *node) : m_node(node) {}
+    ~FileNodeModule() { NODE_LOGD("~FileNodeModule(%p)", this); release(); }
+
     Node *node() { return m_node; }
     void add(eio_req* req);
     void remove(eio_req* req);

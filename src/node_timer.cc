@@ -108,7 +108,7 @@ void Timer::OnTimeout(EV_P_ ev_timer *watcher, int revents) {
 
   TryCatch try_catch;
 
-  NODE_LOGI("%s, Timer fire (%p)",__FUNCTION__, &watcher);
+  NODE_LOGI("%s, Timer fire (%p)",__FUNCTION__, watcher);
   callback->Call(timer->handle_, 0, NULL);
 
   if (try_catch.HasCaught()) {

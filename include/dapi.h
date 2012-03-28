@@ -69,6 +69,7 @@
 #include "dapi_inode.h"
 #include "dapi_core.h"
 #include "dapi_events.h"
+#include "dapi_audio.h"
 #include "dapi_camera.h"
 #include "dapi_permission.h"
 #include "dapi_webview.h"

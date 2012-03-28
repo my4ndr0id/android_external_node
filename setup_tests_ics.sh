@@ -86,27 +86,28 @@ done
 NODE_DIR=$PWD
 
 if [ "$WS_DIR" == "" ]; then
-  WS_DIR=$PWD/../..
+  WS_DIR=$PWD/../../..
 fi
 
 if [ -d $WS_DIR ]; then
-  if [ -d "$WS_DIR/out/target/product/msm8660_surf" ]; then
-    OUT_DIR="$WS_DIR/out/target/product/msm8660_surf"
-  elif [ -d "$WS_DIR/out/target/product/msm8960_surf" ]; then
-    OUT_DIR="$WS_DIR/out/target/product/msm8960_surf"
+#  if [ -d "$WS_DIR/out/target/product/msm8660_surf" ]; then
+#   OUT_DIR="$WS_DIR/out/target/product/msm8660_surf"
+#el
+  if [ -d "$WS_DIR/out/target/product/msm8960" ]; then
+    OUT_DIR="$WS_DIR/out/target/product/msm8960"
   else
-    echo "OUT_DIR not found, specify the workspace dir -ws/--workspace=<>"
+    echo "OUT_DIR not found, specify the workspace dir -ws/--workspace="
     exit
   fi
 fi
 
 
 if [ "$MODULE_DIR" == "" ]; then
-  MODULE_DIR=$NODE_DIR/modules
+  MODULE_DIR=$WS_DIR/external/dapi/modules
 fi
 
 if [ ! -d $MODULE_DIR ]; then
-  echo "modules dir not present in node path, specify it  with -md/--module-dir=<>"
+  echo "module directory \"$MODULE_DIR\" not present, specify it with --module-dir="
   exit
 fi
 
@@ -203,16 +204,17 @@ if $CAMERA; then
   adb shell mkdir $DPATH/public-camera/bin
   adb push $OUT_DIR/system/lib/camera_bindings.so $DPATH/public-camera/bin
   adb push $MODULE_DIR/camera/package.json $DPATH/public-camera/
-  adb push $MODULE_DIR/camera/lib/camera-api.js $DPATH/public-camera/lib
+  adb push $MODULE_DIR/camera/lib $DPATH/public-camera/lib
   adb push $MODULE_DIR/camera/test /data/
 fi
 #adb shell am start -a android.intent.action.VIEW -n com.android.browser/.BrowserActivity -d file:///data/camera-vnode.html
 
 if $FILESYSTEM; then
-  FSPATH=$DPATH/proteusFS
+  FSPATH=$DPATH/public-filesystem
   adb shell mkdir $FSPATH
   adb shell mkdir $FSPATH/lib
-  adb push $MODULE_DIR/proteusFS/package.json $FSPATH
+  adb push $MODULE_DIR/filesystem/package.json $FSPATH
+  adb push $MODULE_DIR/filesystem/lib $FSPATH/lib
 fi
 
 # kill the browser

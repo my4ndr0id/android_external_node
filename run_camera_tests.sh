@@ -50,7 +50,11 @@ do
 done
 
 if [ "$MODULE_DIR" == "" ]; then
-  echo "Specify Module dir, run_camera_tests.sh --module-dir=<>"
+  MODULE_DIR=../../dapi/modules
+fi
+
+if [ ! -d $MODULE_DIR ]; then
+  echo "module directory \"$MODULE_DIR\" not present, specify it with --module-dir="
   exit
 fi
 

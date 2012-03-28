@@ -70,6 +70,10 @@ void IOWatcher::Callback(EV_P_ ev_io *w, int revents) {
 
   Local<Function> callback = Local<Function>::Cast(callback_v);
 
+  // This gets called by the ev, set the context to the
+  // node context that the callback was created in
+  Context::Scope cscope(callback->CreationContext());
+
   TryCatch try_catch;
 
   Local<Value> argv[2];
