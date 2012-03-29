@@ -153,7 +153,7 @@ var verifySig = function (pkg, successCB, failureCB) {
         }
     }
 
-    if (publicKey === pkg.publicKey.replace(/\r\n/, '')) {
+    if (publicKey.replace(/[\r\n]/g, '') !== pkg.publicKey.replace(/[\r\n]/g, '')) {
         return failureCB(createError('SECURITY_ERR', 'Failed to match public keys'));
     }
 
