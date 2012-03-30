@@ -75,11 +75,7 @@ typedef enum {
 // use it for development and when done replace with appropriate macros..
 #define NODE_LOGT(...) DAPILog(DAPI_LOG_ERROR,   LOG_TAG_NODE, __VA_ARGS__);
 
-#if 0
 #define NODE_CRASH()
-#else
-#define NODE_CRASH() { *(int *)0xDEADBEAD = 0; }
-#endif
 
 #define NODE_ASSERT(cond) { \
   if (!(cond)) { \
