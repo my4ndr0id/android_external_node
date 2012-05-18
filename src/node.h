@@ -67,10 +67,11 @@ class Node;
 
 class Lock {
   public:
-    Lock(Node* n, v8::Persistent<v8::Function> func)
+    Lock(Node* n, v8::Persistent<v8::Function> func, v8::Persistent<v8::Object> obj)
     {
-      lockFunction = func;
-      s_node = n;
+      m_lockFunction = func;
+      m_node = n;
+      m_obj = obj;
     }
     static void LockWeakCallback(v8::Persistent<v8::Value> value,void* data){
       NODE_LOGV("%s, LockWeakCallback for dispose : %s", __FUNCTION__, (char*) data);
@@ -78,11 +79,13 @@ class Lock {
     }
     ~Lock(){
       NODE_LOGV("%s, set LockWeakCallback for lock : %p", __FUNCTION__, this);
-      lockFunction.MakeWeak((void*)"lock",LockWeakCallback);
+      m_lockFunction.MakeWeak((void*)"lock",LockWeakCallback);
+      m_obj.MakeWeak((void*)"lockObj",LockWeakCallback);
     }
 
-    v8::Persistent<v8::Function> lockFunction;
-    Node* s_node;
+    v8::Persistent<v8::Function> m_lockFunction;
+    v8::Persistent<v8::Object> m_obj;
+    Node* m_node;
 };
 
 typedef enum {

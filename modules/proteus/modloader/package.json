@@ -1,0 +1,6 @@
+{
+   "name": ",modloader",
+   "version": "1.0.0",
+   "description": "Package to download modules OTA",
+   "main": "./lib/modloader.js"
+}

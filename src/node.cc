@@ -250,6 +250,8 @@ class NodeStatic {
 
     static Handle<Value> EnterBrowserContext(const Arguments& args);
     static Handle<Value> ExitBrowserContext(const Arguments& args);
+    static Handle<Value> EvalInHostContext(const Arguments& args);
+    static Handle<Value> CallInHostContext(const Arguments& args);
     static void EvAsyncCallback(uv_async_t* watcher, int revents);
 
     enum LockContext {
@@ -1007,41 +1009,47 @@ Handle<Value> NodeStatic::AcquireLock(const Arguments& args) {
   NODE_ASSERT(args.Length() > 0 && args[0]->IsFunction());
   Node *n = Node::GetNodeFromObject(args.Holder());
   Persistent<Function> acquireLockJSCallback = Persistent<Function>::New(Local<Function>::Cast(args[0]));
-  Lock *lockInstance  = new Lock(n, acquireLockJSCallback);
+  Persistent<Object> callbackObj ;
+  if (!args[1].IsEmpty())
+    callbackObj = Persistent<Object>::New(Local<Object>::Cast(args[1]));
+  Lock *lockInstance  = new Lock(n, acquireLockJSCallback, callbackObj);
   si()->s_lockList.push_back(lockInstance);
   NODE_LOGV("%s, New lock node: %p lock : %p size : %d ", __FUNCTION__, n, lockInstance, si()->s_lockList.size() );
   if ((si()->s_lockState != true) && (si()->s_lockList.size() > 0)){
     si()->s_lockState = true;
-    Persistent<Function> lockJSCallback = si()->s_lockList[0]->lockFunction ;
+    Node *node = si()->s_lockList[0]->m_node ;
+    Persistent<Function> lockJSCallback = si()->s_lockList[0]->m_lockFunction ;
+    Persistent<Object> param = si()->s_lockList[0]->m_obj ;
     NODE_LOGV("%s, Calling lock func node: %p lock : %p size : %d ", __FUNCTION__, n, lockInstance, si()->s_lockList.size() );
-    lockJSCallback->Call(n->m_context->Global(), 0, 0);
+    Local<Value> args[] = { Local<Object>::New(param) };
+    lockJSCallback->Call(node->m_context->Global(), 1, args);
   }
   return Undefined();
 }
 
-
 Handle<Value> NodeStatic::ReleaseLock(const Arguments& args) {
   NODE_ASSERT(args.Length() == 0);
-  if (si()->s_lockState != false){ //TODO: Need to validate if the same person who lock is unlocking.???
+  if (si()->s_lockState != false) { //TODO: Need to validate if the same person who lock is unlocking.???
     si()->s_lockState = false;
     if(si()->s_lockList.size() > 0){
-      NODE_LOGV("%s, Release lock node : %p lock : %p current size : %d", __FUNCTION__, si()->s_lockList[0]->s_node, si()->s_lockList[0], si()->s_lockList.size());
+      NODE_LOGV("%s, Release lock node : %p lock : %p current size : %d", __FUNCTION__, si()->s_lockList[0]->m_node, si()->s_lockList[0], si()->s_lockList.size());
       Lock *lockInstance = si()->s_lockList[0];
       si()->s_lockList.erase(si()->s_lockList.begin()); // remove the first entry
       delete lockInstance;
       // check if we have more item in vector
       if (si()->s_lockList.size() > 0 ) {
-	si()->s_lockState = true;
-	Node *n = si()->s_lockList[0]->s_node ;
-	NODE_LOGV("%s, Calling lock func node: %p lock : %p size : %d ", __FUNCTION__, n, si()->s_lockList[0], si()->s_lockList.size() );
-	Persistent<Function> lockJSCallback = si()->s_lockList[0]->lockFunction ;
-	lockJSCallback->Call(n->m_context->Global(), 0, 0);
+        si()->s_lockState = true;
+        Node *n = si()->s_lockList[0]->m_node ;
+        NODE_LOGV("%s, Calling lock func node: %p lock : %p size : %d ", __FUNCTION__, n, si()->s_lockList[0], si()->s_lockList.size() );
+        Persistent<Function> lockJSCallback = si()->s_lockList[0]->m_lockFunction ;
+        Persistent<Object> param = si()->s_lockList[0]->m_obj ;
+        Local<Value> args[] = { Local<Object>::New(param) };
+        lockJSCallback->Call(n->m_context->Global(), 1, args);
       }
     }
-  }
-  else{
+  } else {
     return ThrowException(Exception::Error(
-      String::New("Called without calling Acquire")));
+    String::New("Called without calling Acquire")));
   }
   return Undefined();
 }
@@ -1095,8 +1103,8 @@ void Node::PrintJSStackTrace(DAPILogPriority pri) {
     Local<StackFrame> frame = stackTrace->GetFrame(i);
     String::Utf8Value function(frame->GetFunctionName());
     String::Utf8Value source(frame->GetScriptNameOrSourceURL());
-    DAPILog(pri, LOG_TAG_NODE, "#%02d in %s (%s:%d)", 
-        i, function.length() == 0 ? "<>" : *function, 
+    DAPILog(pri, LOG_TAG_NODE, "#%02d in %s (%s:%d)",
+        i, function.length() == 0 ? "<>" : *function,
         source.length() == 0 ? "<> " : *source, frame->GetLineNumber());
   }
   DAPILog(pri, LOG_TAG_NODE, "===");
@@ -1190,7 +1198,7 @@ Handle<Value> NodeStatic::TestSleep(const Arguments &args) {
 Handle<Value> NodeStatic::TestContext(const Arguments &args) {
   HandleScope scope;
   Node *n = Node::GetNodeFromObject(args.Holder());
-  NODE_LOGW("CONTEXT: %s", args[0]->ToObject()->CreationContext() == n->m_context ? 
+  NODE_LOGW("CONTEXT: %s", args[0]->ToObject()->CreationContext() == n->m_context ?
       "NodeContext" : "UnknownContext");
   return Handle<Value>();
 }
@@ -1402,6 +1410,36 @@ Handle<Value> NodeStatic::LoopUnref(const Arguments& args) {
   return Handle<Value>();
 }
 
+Handle<Value> NodeStatic::EvalInHostContext(const Arguments& args) {
+  HandleScope scope;
+  NODE_ASSERT(args[0]->IsString());
+
+  // Evaluate in host context..
+  Node* n = Node::GetNodeFromObject(args.Holder());
+  Context::Scope cscope(n->m_browserContext);
+
+ return Node::ExecuteString(args[0]->ToString(), IMMUTABLE_STRING("<host.eval>"));
+}
+
+Handle<Value> NodeStatic::CallInHostContext(const Arguments& args) {
+  HandleScope scope;
+  NODE_ASSERT(args[1]->IsFunction());
+  NODE_ASSERT(args[2]->IsArray());
+
+  // Call in host context..
+  Node* n = Node::GetNodeFromObject(args.Holder());
+  Context::Scope cscope(n->m_browserContext);
+  Local<Function> wrapper = Local<Function>::Cast(args[0]);
+  TryCatch try_catch;
+  Local<Value> args_[] = { args[1], args[2] };
+  Local<Value> result = wrapper->Call(n->m_browserContext->Global(), 2, args_);
+  if (try_catch.HasCaught()) {
+    si()->ReportException(try_catch, true);
+    return Handle<Value>();
+  }
+  return result;
+}
+
 void Node::SetupProcessObject() {
   NODE_LOGF();
 
@@ -1444,6 +1482,11 @@ void Node::SetupProcessObject() {
   NODE_SET_METHOD(m_process, "enterBrowserContext", NodeStatic::EnterBrowserContext);
   NODE_SET_METHOD(m_process, "exitBrowserContext", NodeStatic::ExitBrowserContext);
 
+  // evaluates the given string in host context, same as window.eval
+  NODE_SET_METHOD(m_process, "evalInHostContext", NodeStatic::EvalInHostContext);
+
+  NODE_SET_METHOD(m_process, "callInHostContext", NodeStatic::CallInHostContext);
+
   // module root
   NODE_ASSERT(!si()->s_appPath.empty());
   NODE_ASSERT(!si()->s_moduleDownloadPath.empty());
@@ -1460,7 +1503,7 @@ void Node::SetupProcessObject() {
   m_process->Set(String::NewSymbol("proteusVersion"), String::New(PROTEUS_VERSION));
 
   // set the browser pages global object (window) as process.window
-  m_process->Set(String::NewSymbol("window"), m_browserContext->Global());
+  // m_process->Set(String::NewSymbol("window"), m_browserContext->Global());
 
   // create test object
   NODE_SET_METHOD(m_test, "stack", NodeStatic::TestStack);
@@ -1480,7 +1523,7 @@ void Node::SetupProcessObject() {
   NODE_SET_METHOD(m_test, "deleteNode", NodeStatic::TestDeleteNode);
 
   Local<Object> global = m_context->Global();
-  global->Set(String::NewSymbol("window"), m_browserContext->Global());
+  // global->Set(String::NewSymbol("window"), m_browserContext->Global());
   global->Set(String::NewSymbol("test"), m_test);
   global->Set(v8::String::New("host"), v8::Boolean::New(false));
 }
@@ -1721,7 +1764,7 @@ void Node::setINodeInObject(v8::Handle<v8::Object> o, INode *inode) {
   o->SetPointerInInternalField(0, inode);
 }
 
-void Node::Init() { 
+void Node::Init() {
   // This is required before we do the first initialize, since the thread needs it to send
   // back events and it needs atleast one node instance to be available
   // do not add the service node to the list..
@@ -1793,14 +1836,14 @@ Node::~Node(){
   // clean up the lock functions if any.
   if (si()->s_lockList.size() > 0 ) {
     NODE_LOGV("%s, releasing function size : %d)", __FUNCTION__, si()->s_lockList.size());
-    if ((si()->s_lockState == true) &&  (si()->s_lockList[0]->s_node == this))
+    if ((si()->s_lockState == true) &&  (si()->s_lockList[0]->m_node == this))
       si()->s_lockState = false;
     vector<Lock * >::iterator it = si()->s_lockList.begin();
     while( it != si()->s_lockList.end() ) {
       Lock * temp = *it;
-      NODE_LOGV("%s, Check Lock : %p, node : %p)", __FUNCTION__, temp, temp->s_node );
-      if (temp->s_node == this) {
-        NODE_LOGV("%s, releasing function Lock : %p, node : %p)", __FUNCTION__, temp, temp->s_node );
+      NODE_LOGV("%s, Check Lock : %p, node : %p)", __FUNCTION__, temp, temp->m_node);
+      if (temp->m_node == this) {
+        NODE_LOGV("%s, releasing function Lock : %p, node : %p)", __FUNCTION__, temp, temp->m_node);
         it = si()->s_lockList.erase(it);
         delete temp;
       }
@@ -2251,8 +2294,8 @@ void printToStdout(DAPILogPriority prio, const char *tag, const char* buf) {
 
 // node follows android logging mechanism and will be controllable at build/runtime
 #define LOG_BUF_SIZE 2048
-extern "C" DAPIEXPORT void DAPILog(DAPILogPriority prio, 
-		const char *tag, const char *fmt, ...) {
+extern "C" DAPIEXPORT void DAPILog(DAPILogPriority prio,
+  const char *tag, const char *fmt, ...) {
   if (si()) {
     pthread_mutex_lock(&si()->s_log_mutex);
   }

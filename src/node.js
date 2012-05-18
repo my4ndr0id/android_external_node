@@ -74,7 +74,7 @@
     // this._events[type] = [] (this == process)
 
     var Module = NativeModule.require('module');
-    var proteusModLoader = Module.require('proteusModLoader', null);
+    var modloader = Module.require('modloader', null);
 
     var createError = function (err, msg) {
         var e = new Error(msg);
@@ -115,7 +115,6 @@
         return webapp.callback(errorCB, createError("INVALID_VALUES_ERR","Invalid argument value provided"));
       }
 
-      var proteusModLoaderObj = new proteusModLoader();
       var loadSuccessCB = function() {
         console.verbose("loadModule: require(public-" + request + ")");
         var module = Module.require('public-' + request);
@@ -131,9 +130,9 @@
         console.info("loadModule: using local modules only.");
         loadSuccessCB();
       } else {
-        proteusModLoaderObj.loadPackage('public-' + request, loadSuccessCB, function(e){
+        modloader.loadPackage('public-' + request, loadSuccessCB, function(e) {
             webapp.callback(errorCB, e);
-          });
+        });
       }
     };
 
@@ -141,7 +140,7 @@
     global.loadModule = loadModule;
 
     // cache the setTimeout from browser/host context
-    process.hostSetTimeout = window.setTimeout ? window.setTimeout : setTimeout;
+    // process.hostSetTimeout = window.setTimeout ? window.setTimeout : setTimeout;
 
     // return loadModule, require for the native code
     return [loadModule, Module.require];

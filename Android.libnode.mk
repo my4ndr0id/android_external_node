@@ -23,7 +23,7 @@ LOCAL_JS_FILES := $(LOCAL_PATH)/src/node.js $(LOCAL_PATH)/lib/*.js
 
 # Add Modloader js files as builtins
 LOCAL_JS_FILES += \
-        $(LOCAL_PATH)/modules/proteus/proteusModLoader/lib/*.js \
+        $(LOCAL_PATH)/modules/proteus/modloader/lib/*.js \
         $(LOCAL_PATH)/modules/proteus/proteusPackageExtractor/lib/*.js \
         $(LOCAL_PATH)/modules/proteus/proteusDeviceInfo/lib/*.js \
         $(LOCAL_PATH)/modules/proteus/proteusUnzip/lib/*.js \
@@ -40,6 +40,10 @@ LOCAL_JS_FILES += \
 # webapp
 LOCAL_JS_FILES += \
         $(LOCAL_PATH)/modules/proteus/webapp/webapp.js
+
+# validate
+LOCAL_JS_FILES += \
+        $(LOCAL_PATH)/modules/proteus/validate/validate.js
 
 GEN_NODE := $(intermediates)/node_natives.h
 $(GEN_NODE): SCRIPT := $(intermediates)/js2c.py

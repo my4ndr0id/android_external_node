@@ -639,7 +639,7 @@ def build_uv(bld):
 
   # proteus:
   uv.env.env['CPPFLAGS'] +=  " -I. -I../../../../src -I../../../../include -I../../../../include/module";
- 
+
   if bld.env['DEST_CPU']=='ia32':
     uv.env.env['CPPFLAGS'] +=  " -m32 "
 
@@ -757,7 +757,7 @@ def build(bld):
     source.append(macros_loc_debug)
     js2c.JS2C(source, targets)
 
-  modloaderjslist = ' ' + bld.path.ant_glob('modules/proteus/proteusModLoader/lib/*.js') + ' ' + \
+  modloaderjslist = ' ' + bld.path.ant_glob('modules/proteus/modloader/lib/*.js') + ' ' + \
        bld.path.ant_glob('modules/proteus/proteusPackageExtractor/lib/*.js') + ' ' + \
        bld.path.ant_glob('modules/proteus/proteusUnzip/lib/*.js') + \
        ' ../modules/sqlite-sync/sqlite.js ' + \
@@ -905,7 +905,7 @@ def build(bld):
 
   # dapi
   node.source += " src/dapi_inode.cc "
-  
+
   # desktop host
   if product_type == 'program':
      node.source += " src/main.cc "

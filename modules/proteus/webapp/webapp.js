@@ -13,7 +13,7 @@
  *     * Neither the name of Code Aurora Forum, Inc. nor the names of its
  *       contributors may be used to endorse or promote products derived
  *       from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED "AS IS" AND ANY EXPRESS OR IMPLIED
  * WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
  * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT
@@ -27,17 +27,58 @@
  * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-exports.callback = function() {
-  var args = arguments;
-  process.hostSetTimeout.call(null, function() {
-      if (args.length <= 4) { // 3 arguments, common case, fast path
-          args[0].call(null, args[1], args[2], args[3]);
-      } else { // slow case
-          var l = arguments.length;
-          var args_ = new Array(l - 1);
-          for (var i = 1; i < l; i++) args_[i - 1] = arguments[i];
-          args[0].apply(null, args_);
-      }
-  }, 0);
-}
+var validate = require('validate');
+var wrapper = process.evalInHostContext("(function (cb, args) { return cb.apply(null, args); })");
 
+// evaluates in the host context, to be invoked for synchronous api in the host context
+// e.g window.webkitURL.createObjectURL(..) would be invoked as
+// webapp.eval("window.webkitURL.createObjectURL()"
+// if you need to pass arguments from the current lexical scope
+// var fn = webapp.eval("(function(arg0) { window.webkitURL.createObjectURL(arg0); })");
+// fn(arg); // where arg is available in current scope
+// note window prefix is redundant, you could as well do
+// webapp.eval("webkitURL.createObjectURL()")
+exports.evalInHost = function (str) {
+    return process.evalInHostContext(validate.asString(str));
+};
+
+exports.callback = function (cb) {
+    cb = validate.asFunction(cb);
+
+    // Create a function wrapper in the host context and invoke the wrapper
+    // This ensures that the function "fn" gets invoked with the host context as the
+    // current/calling/entered context
+    var args = arguments;
+    process.nextTick( function () { process.callInHostContext(wrapper, cb, [].slice.call(args, 1));} );
+};
+
+exports.wrapCallback = function (cb) {
+    cb = validate.asFunction(cb);
+
+    // Create a function wrapper in the host context and invoke the wrapper
+    // This ensures that the function "fn" gets invoked with the host context as the
+    // current/calling/entered context
+    return function () {
+        // prepend cb to the arguments lists and invoke webapp.callback
+        var args = [].slice.call(arguments);
+        process.nextTick( function () { process.callInHostContext(wrapper, cb, args);} );
+    };
+
+};
+
+exports.newFunc = function (func) {
+    if (typeof func === 'string') {
+        func = process.evalInHostContext(func);
+    }
+
+    func = validate.asFunction(func);
+
+    // Create a function wrapper in the host context and invoke the wrapper
+    // This ensures that the function "fn" gets invoked with the host context as the
+    // current/calling/entered context
+    return function () {
+        // prepend cb to the arguments lists and invoke webapp.callback
+        var args = [].slice.call(arguments);
+        return process.callInHostContext(wrapper, func, args);
+    };
+};

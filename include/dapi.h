@@ -73,5 +73,6 @@
 #include "dapi_camera.h"
 #include "dapi_permission.h"
 #include "dapi_webview.h"
+#include "dapi_javabridge.h"
 
 #endif

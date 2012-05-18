@@ -75,6 +75,13 @@ typedef enum {
 // use it for development and when done replace with appropriate macros..
 #define NODE_LOGT(...) DAPILog(DAPI_LOG_ERROR,   LOG_TAG_NODE, __VA_ARGS__);
 
+#define NODE_THROW_COND(cond, msg) { \
+if (!(cond)) { \
+    DAPILog(DAPI_LOG_ERROR, LOG_TAG_NODE, msg ); \
+    return ThrowException(Exception::TypeError(String::New(msg))); \
+    } \
+}
+
 #define NODE_CRASH()
 
 #define NODE_ASSERT(cond) { \
